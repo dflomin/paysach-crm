@@ -1,65 +1,89 @@
-import Image from "next/image";
+import { getDbConnection } from "@/lib/db";
+import { Briefcase, LogIn } from "lucide-react";
+import { getServerSession } from "next-auth";
+import { authOptions } from "./api/auth/[...nextauth]/route";
+import { CrmClient } from "./crm-client";
 
-export default function Home() {
+export default async function ({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | string[] | undefined };
+}) {
+  const session = await getServerSession(authOptions);
+
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md px-4">
+          <div className="flex justify-center text-blue-600">
+            <Briefcase size={48} strokeWidth={1.5} />
+          </div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-slate-900">UCC Dialer CRM</h2>
+          <p className="mt-2 text-center text-sm text-slate-600">Secure access restricted to authorized users.</p>
+        </div>
+        <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4">
+          <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-slate-200">
+            <a href="/api/auth/signin" className="w-full flex justify-center items-center py-2.5 px-4 border border-slate-300 rounded-md shadow-sm bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+              <LogIn className="mr-2" size={18} />
+              Sign in with Google
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const tab = typeof searchParams.tab === 'string' ? searchParams.tab : 'All';
+  const q = typeof searchParams.q === 'string' ? searchParams.q : '';
+  const leadId = typeof searchParams.leadId === 'string' ? searchParams.leadId : null;
+
+  const db = getDbConnection();
+
+  const searchQuery = `%${q}%`;
+  // ACTUAL DB QUERY
+  const [businesses] = await db.execute(`
+    SELECT b.*,
+      (SELECT phone FROM phones p WHERE p.business_id = b.id AND p.type = 'primary' LIMIT 1) as primary_phone,
+      (SELECT is_dead FROM phones p WHERE p.business_id = b.id AND p.type = 'primary' LIMIT 1) as primary_phone_dead
+    FROM businesses b
+    WHERE (? = 'All' OR b.status = ?)
+    AND (b.name LIKE ? OR b.contact_name LIKE ?)
+    ORDER BY b.last_called_ts DESC, b.insert_ts DESC
+    LIMIT 100
+  `, [tab, tab, searchQuery, searchQuery]);
+
+  let selectedLead = null;
+  let phones: any[] = [];
+  let filings: any[] = [];
+  let notes: any[] = [];
+
+  if (leadId) {
+    const [leadRows] = await db.execute('SELECT * FROM businesses WHERE id = ?', [leadId]);
+    selectedLead = (leadRows as any[])[0] || null;
+
+    if (selectedLead) {
+      const [phoneRows] = await db.execute('SELECT * FROM phones WHERE business_id = ? ORDER BY type ASC', [leadId]);
+      phones = phoneRows as any[];
+
+      const [filingRows] = await db.execute('SELECT * FROM filings WHERE business_id = ? ORDER BY filing_date DESC', [leadId]);
+      filings = filingRows as any[];
+
+      const [noteRows] = await db.execute('SELECT * FROM notes WHERE business_id = ? ORDER BY created_ts DESC', [leadId]);
+      notes = noteRows as any[];
+    }
+  }
+
+  const sanitizeData = (data: any) => JSON.parse(JSON.stringify(data));
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <CrmClient
+      businesses={sanitizeData(businesses)}
+      selectedLead={sanitizeData(selectedLead)}
+      phones={sanitizeData(phones)}
+      filings={sanitizeData(filings)}
+      notes={sanitizeData(notes)}
+      initialTab={tab}
+      initialQuery={q}
+    />
   );
 }
