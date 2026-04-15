@@ -279,10 +279,7 @@ export default function CrmClient({
       const stateMatch = effectiveSelectedStates.length === 0 || effectiveSelectedStates.includes(String(business.filing_state ?? ''));
       const businessNameMatch = !searchText || normalize(business.name).includes(searchText);
 
-      const filingDateMinMatch = !filingDateMin || (
-        business.most_recent_filing_date &&
-        new Date(business.most_recent_filing_date) >= new Date(`${filingDateMin}T00:00:00`)
-      );
+      const filingDateMinMatch = isWithinDateRange(business.most_recent_filing_date, { from: filingDateMin, to: '' });
 
       return (
         businessNameMatch &&
