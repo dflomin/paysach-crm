@@ -164,6 +164,7 @@ export default function CrmClient({
   const [selectedStates, setSelectedStates] = useState<string[]>([]);
   const [lastCalledRange, setLastCalledRange] = useState({ from: '', to: '' });
   const [filedDateRange, setFiledDateRange] = useState({ from: '', to: '' });
+  const [filingDateMin, setFilingDateMin] = useState('');
   const [activePopup, setActivePopup] = useState<string | null>(null);
 
   useEffect(() => {
@@ -278,6 +279,11 @@ export default function CrmClient({
       const stateMatch = effectiveSelectedStates.length === 0 || effectiveSelectedStates.includes(String(business.filing_state ?? ''));
       const businessNameMatch = !searchText || normalize(business.name).includes(searchText);
 
+      const filingDateMinMatch = !filingDateMin || (
+        business.most_recent_filing_date &&
+        new Date(business.most_recent_filing_date) >= new Date(`${filingDateMin}T00:00:00`)
+      );
+
       return (
         businessNameMatch &&
         leadText.includes(normalize(columnFilters.lead)) &&
@@ -285,7 +291,8 @@ export default function CrmClient({
         statusText.includes(normalize(columnFilters.status)) &&
         stateMatch &&
         isWithinDateRange(business.last_called_ts, lastCalledRange) &&
-        isWithinDateRange(business.insert_ts, filedDateRange)
+        isWithinDateRange(business.insert_ts, filedDateRange) &&
+        filingDateMinMatch
       );
     });
 
@@ -305,8 +312,8 @@ export default function CrmClient({
         return normalize(a.filing_state).localeCompare(normalize(b.filing_state)) * dir;
       }
       if (sortKey === 'filedDate') {
-        const aTime = a.insert_ts ? new Date(a.insert_ts).getTime() : 0;
-        const bTime = b.insert_ts ? new Date(b.insert_ts).getTime() : 0;
+        const aTime = a.most_recent_filing_date ? new Date(a.most_recent_filing_date).getTime() : 0;
+        const bTime = b.most_recent_filing_date ? new Date(b.most_recent_filing_date).getTime() : 0;
         return (aTime - bTime) * dir;
       }
 
@@ -316,7 +323,7 @@ export default function CrmClient({
     });
 
     return sorted;
-  }, [columnFilters, debouncedSearchQuery, effectiveSelectedStates, filedDateRange, lastCalledRange, selectedPhoneFilters, sortDirection, sortKey, sourceBusinesses]);
+  }, [columnFilters, debouncedSearchQuery, effectiveSelectedStates, filedDateRange, filingDateMin, lastCalledRange, selectedPhoneFilters, sortDirection, sortKey, sourceBusinesses]);
 
   const filteredCount = filteredBusinesses.length;
   const totalPages = Math.max(1, Math.ceil(filteredCount / pageSize));
@@ -484,7 +491,7 @@ export default function CrmClient({
                 </th>
                 <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   <button type="button" onClick={() => toggleSort('filedDate')} className="inline-flex items-center gap-1 hover:text-slate-700">
-                    Filed Date <span className="text-slate-400">{sortIndicator('filedDate')}</span>
+                    Filing Date <span className="text-slate-400">{sortIndicator('filedDate')}</span>
                   </button>
                 </th>
               </tr>
@@ -543,15 +550,24 @@ export default function CrmClient({
                   />
                 </th>
                 <th className="hidden md:table-cell px-6 py-2">
-                  <DateRangeFilter
-                    popupId="filed-date-filter"
-                    label="Filed Date"
-                    value={filedDateRange}
-                    onChange={setFiledDateRange}
-                    activePopup={activePopup}
-                    setActivePopup={setActivePopup}
-                    align="right"
-                  />
+                  <div className="flex flex-col gap-1">
+                    <input
+                      type="date"
+                      value={filingDateMin}
+                      onChange={(e) => setFilingDateMin(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700"
+                      title="Filing date on or after"
+                    />
+                    {filingDateMin && (
+                      <button
+                        type="button"
+                        onClick={() => setFilingDateMin('')}
+                        className="text-[10px] text-slate-400 hover:text-slate-600 text-left"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 </th>
               </tr>
             </thead>
@@ -613,7 +629,7 @@ export default function CrmClient({
                       {business.last_called_ts ? formatTimeAgo(business.last_called_ts) : 'Never'}
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                      {formatDate(business.insert_ts)}
+                      {formatDate(business.most_recent_filing_date)}
                     </td>
                   </tr>
                 );
