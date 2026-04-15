@@ -158,6 +158,8 @@ export default function CrmClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  const [isActionPending, setIsActionPending] = useState(false);
+  const isLoading = isPending || isActionPending;
 
   // URL State Manager
   const updateUrlParams = useCallback((updates: Record<string, string | null | undefined>) => {
@@ -287,19 +289,34 @@ export default function CrmClient({
 
   const handleDisposition = async (status: string) => {
     if (!selectedLead) return;
-    await logDisposition(selectedLead.id, status);
+    setIsActionPending(true);
+    try {
+      await logDisposition(selectedLead.id, status);
+    } finally {
+      setIsActionPending(false);
+    }
   };
 
   const handleTogglePhoneDead = async (phoneId: number, isDead: boolean) => {
-    await togglePhoneDead(phoneId, isDead);
+    setIsActionPending(true);
+    try {
+      await togglePhoneDead(phoneId, isDead);
+    } finally {
+      setIsActionPending(false);
+    }
   };
 
   const handleAddManualNote = async (e: any) => {
     e.preventDefault();
     const body = e.target.note.value;
     if (!body.trim() || !selectedLead) return;
-    await addManualNote(selectedLead.id, body);
-    e.target.reset();
+    setIsActionPending(true);
+    try {
+      await addManualNote(selectedLead.id, body);
+      e.target.reset();
+    } finally {
+      setIsActionPending(false);
+    }
   };
 
   const contactCards = useMemo(() => {
@@ -346,10 +363,17 @@ export default function CrmClient({
 
   return (
     <div className="h-[100dvh] bg-slate-100 p-2 sm:p-4">
+      {/* Full-page loading overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/20">
+          <div className="w-12 h-12 rounded-full border-4 border-slate-300 border-t-blue-600 animate-spin" />
+        </div>
+      )}
+
       <div className="mx-auto flex h-full w-full max-w-[1700px] overflow-hidden rounded-xl border border-slate-200 bg-white font-sans text-slate-900 shadow-sm relative">
 
       {/* LEFT PANE: Master Table */}
-      <div className={`flex-1 flex flex-col min-w-0 border-r border-slate-200 bg-white w-full ${isPending ? 'opacity-70 pointer-events-none' : ''} transition-opacity`}>
+      <div className="flex-1 flex flex-col min-w-0 border-r border-slate-200 bg-white w-full">
 
         {/* Header & Controls */}
         <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-col gap-4 bg-slate-50/50">
@@ -604,7 +628,7 @@ export default function CrmClient({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={currentPage <= 1 || isPending}
+              disabled={currentPage <= 1 || isLoading}
               onClick={() => updateUrlParams({ page: String(currentPage - 1), leadId: null })}
               className="px-3 py-1.5 text-xs sm:text-sm rounded-md border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -615,7 +639,7 @@ export default function CrmClient({
             </span>
             <button
               type="button"
-              disabled={currentPage >= totalPages || isPending}
+              disabled={currentPage >= totalPages || isLoading}
               onClick={() => updateUrlParams({ page: String(currentPage + 1), leadId: null })}
               className="px-3 py-1.5 text-xs sm:text-sm rounded-md border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
