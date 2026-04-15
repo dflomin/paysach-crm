@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useMemo, useState, useTransition } from 'react';
+import React, { useCallback, useEffect, useRef, useMemo, useState, useTransition } from 'react';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import {
   Search, Phone, CheckCircle, FileText,
@@ -159,6 +159,23 @@ export default function CrmClient({
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
+  // URL State Manager
+  const updateUrlParams = useCallback((updates: Record<string, string | null | undefined>) => {
+    const current = new URLSearchParams(Array.from(searchParams.entries()));
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === '') {
+        current.delete(key);
+      } else {
+        current.set(key, value as string);
+      }
+    });
+    const search = current.toString();
+    const query = search ? `?${search}` : '';
+    startTransition(() => {
+      router.push(`${pathname}${query}`);
+    });
+  }, [pathname, router, searchParams]);
+
   // Text inputs: local state (debounced URL push). Synced from props on server re-render.
   const [searchInputValue, setSearchInputValue] = useState(initialQuery);
   const [leadInputValue, setLeadInputValue] = useState(initialLead);
@@ -185,7 +202,7 @@ export default function CrmClient({
       }
     }, 350);
     return () => window.clearTimeout(timeout);
-  }, [searchInputValue]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchInputValue, updateUrlParams]);
 
   // Debounced URL push for lead filter input
   useEffect(() => {
@@ -196,7 +213,7 @@ export default function CrmClient({
       }
     }, 350);
     return () => window.clearTimeout(timeout);
-  }, [leadInputValue]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [leadInputValue, updateUrlParams]);
 
   const [activePopup, setActivePopup] = useState<string | null>(null);
 
@@ -213,23 +230,6 @@ export default function CrmClient({
     selectedStateValues.length > 0 ? selectedStateValues : allStateOptions;
   const lastCalledRange = { from: initialLcFrom, to: initialLcTo };
   const filingDateMin = initialFilingMin;
-
-  // URL State Manager
-  const updateUrlParams = (updates: Record<string, string | null | undefined>) => {
-    const current = new URLSearchParams(Array.from(searchParams.entries()));
-    Object.entries(updates).forEach(([key, value]) => {
-      if (value === null || value === undefined || value === '') {
-        current.delete(key);
-      } else {
-        current.set(key, value as string);
-      }
-    });
-    const search = current.toString();
-    const query = search ? `?${search}` : '';
-    startTransition(() => {
-      router.push(`${pathname}${query}`);
-    });
-  };
 
   const formatDate = (dateString: string) => {
     if (!dateString) return 'Never';
