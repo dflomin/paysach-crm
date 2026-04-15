@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState, useTransition } from 'react';
+import React, { useCallback, useEffect, useRef, useMemo, useState, useTransition } from 'react';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import {
   Search, Phone, CheckCircle, FileText,
@@ -138,44 +138,31 @@ export default function CrmClient({
   contacts = [],
   filings = [],
   notes = [],
+  totalCount = 0,
+  pageSize = 25,
   initialTab = 'New',
   initialQuery = '',
+  initialLead = '',
+  initialStatus = '',
+  initialPhone = 'present',
+  initialStates = '',
+  initialLcFrom = '',
+  initialLcTo = '',
+  initialFilingMin = '',
+  initialSort = 'lastCalled',
+  initialDir = 'desc',
   initialPage = 1,
-  pageSize = 25,
-  totalCount = 0,
+  allStateOptions = [],
 }: any) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  const [isActionPending, setIsActionPending] = useState(false);
+  const isLoading = isPending || isActionPending;
 
-  const [searchQuery, setSearchQuery] = useState(initialQuery);
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialQuery);
-  const sourceBusinesses = businesses;
-  const [sortKey, setSortKey] = useState('lastCalled');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [columnFilters, setColumnFilters] = useState({
-    lead: '',
-    status: '',
-    lastCalled: '',
-    filedDate: '',
-  });
-  const [selectedPhoneFilters, setSelectedPhoneFilters] = useState<Array<'present' | 'missing'>>(['present']);
-  const [selectedStates, setSelectedStates] = useState<string[]>([]);
-  const [lastCalledRange, setLastCalledRange] = useState({ from: '', to: '' });
-  const [filedDateRange, setFiledDateRange] = useState({ from: '', to: '' });
-  const [activePopup, setActivePopup] = useState<string | null>(null);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery);
-    }, 350);
-
-    return () => window.clearTimeout(timeout);
-  }, [searchQuery]);
-
-  // URL State Manager replacing local useState
-  const updateUrlParams = (updates: any) => {
+  // URL State Manager
+  const updateUrlParams = useCallback((updates: Record<string, string | null | undefined>) => {
     const current = new URLSearchParams(Array.from(searchParams.entries()));
     Object.entries(updates).forEach(([key, value]) => {
       if (value === null || value === undefined || value === '') {
@@ -185,12 +172,66 @@ export default function CrmClient({
       }
     });
     const search = current.toString();
-    const query = search ? `?${search}` : "";
-
+    const query = search ? `?${search}` : '';
     startTransition(() => {
       router.push(`${pathname}${query}`);
     });
-  };
+  }, [pathname, router, searchParams]);
+
+  // Text inputs: local state (debounced URL push). Synced from props on server re-render.
+  const [searchInputValue, setSearchInputValue] = useState(initialQuery);
+  const [leadInputValue, setLeadInputValue] = useState(initialLead);
+  const searchPushedRef = useRef(initialQuery);
+  const leadPushedRef = useRef(initialLead);
+
+  // Sync text inputs when server gives us new initial values (e.g. browser back/forward)
+  useEffect(() => {
+    searchPushedRef.current = initialQuery;
+    setSearchInputValue(initialQuery);
+  }, [initialQuery]);
+
+  useEffect(() => {
+    leadPushedRef.current = initialLead;
+    setLeadInputValue(initialLead);
+  }, [initialLead]);
+
+  // Debounced URL push for search input
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      if (searchInputValue !== searchPushedRef.current) {
+        searchPushedRef.current = searchInputValue;
+        updateUrlParams({ q: searchInputValue || null, page: '1' });
+      }
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [searchInputValue, updateUrlParams]);
+
+  // Debounced URL push for lead filter input
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      if (leadInputValue !== leadPushedRef.current) {
+        leadPushedRef.current = leadInputValue;
+        updateUrlParams({ lead: leadInputValue || null, page: '1' });
+      }
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [leadInputValue, updateUrlParams]);
+
+  const [activePopup, setActivePopup] = useState<string | null>(null);
+
+  // --- Derive filter state from props (URL params read by server) ---
+  const sortKey = initialSort;
+  const sortDirection = initialDir as 'asc' | 'desc';
+  const selectedPhoneValues: string[] = initialPhone
+    ? initialPhone.split(',').filter(Boolean)
+    : ['present'];
+  const selectedStateValues: string[] = initialStates
+    ? initialStates.split(',').filter(Boolean)
+    : [];
+  const effectiveSelectedStates: string[] =
+    selectedStateValues.length > 0 ? selectedStateValues : allStateOptions;
+  const lastCalledRange = { from: initialLcFrom, to: initialLcTo };
+  const filingDateMin = initialFilingMin;
 
   const formatDate = (dateString: string) => {
     if (!dateString) return 'Never';
@@ -216,124 +257,29 @@ export default function CrmClient({
       .join(' ');
   };
 
-  const isWithinDateRange = (dateString: string | null | undefined, range: { from: string; to: string }) => {
-    if (!range.from && !range.to) return true;
-    if (!dateString) return false;
-
-    const value = new Date(dateString);
-    if (Number.isNaN(value.getTime())) return false;
-
-    if (range.from) {
-      const start = new Date(`${range.from}T00:00:00`);
-      if (value < start) return false;
-    }
-
-    if (range.to) {
-      const end = new Date(`${range.to}T23:59:59.999`);
-      if (value > end) return false;
-    }
-
-    return true;
-  };
-
-  const statusOptions = useMemo<string[]>(() => {
-    const statuses: string[] = businesses
-      .map((business: any) => business.status)
-      .filter((status: unknown): status is string => typeof status === 'string' && status.trim().length > 0);
-
-    return Array.from(new Set<string>(statuses)).sort((a, b) => a.localeCompare(b));
-  }, [businesses]);
-
-  const stateOptions = useMemo<string[]>(() => {
-    const states: string[] = businesses
-      .map((business: any) => business.filing_state)
-      .filter((state: unknown): state is string => typeof state === 'string' && state.trim().length > 0);
-
-    return Array.from(new Set<string>(states)).sort((a, b) => a.localeCompare(b));
-  }, [businesses]);
-
-  const effectiveSelectedStates = selectedStates.length > 0 ? selectedStates : stateOptions;
+  // Known status options (same as tab values)
+  const statusOptions = ['New', 'Interested', 'Callbacks', 'Not Interested', 'Dead'];
 
   const phoneFilterOptions: MultiOption[] = [
     { value: 'present', label: 'Present' },
     { value: 'missing', label: 'Missing' },
   ];
 
-  const stateFilterOptions: MultiOption[] = stateOptions.map((state) => ({
+  const stateFilterOptions: MultiOption[] = allStateOptions.map((state: string) => ({
     value: state,
     label: formatStateName(state),
   }));
 
-  const filteredBusinesses = useMemo(() => {
-    const normalize = (value: unknown) => String(value ?? '').toLowerCase();
-
-    const filtered = sourceBusinesses.filter((business: any) => {
-      const leadText = `${normalize(business.name)} ${normalize(business.contact_name)}`;
-      const statusText = normalize(business.status);
-      const searchText = normalize(debouncedSearchQuery);
-      const hasPhone = typeof business.primary_phone === 'string' && business.primary_phone.trim().length > 0;
-      const phoneMatch =
-        (selectedPhoneFilters.includes('present') && hasPhone) ||
-        (selectedPhoneFilters.includes('missing') && !hasPhone);
-      const stateMatch = effectiveSelectedStates.length === 0 || effectiveSelectedStates.includes(String(business.filing_state ?? ''));
-      const businessNameMatch = !searchText || normalize(business.name).includes(searchText);
-
-      return (
-        businessNameMatch &&
-        leadText.includes(normalize(columnFilters.lead)) &&
-        phoneMatch &&
-        statusText.includes(normalize(columnFilters.status)) &&
-        stateMatch &&
-        isWithinDateRange(business.last_called_ts, lastCalledRange) &&
-        isWithinDateRange(business.insert_ts, filedDateRange)
-      );
-    });
-
-    const sorted = [...filtered].sort((a: any, b: any) => {
-      const dir = sortDirection === 'asc' ? 1 : -1;
-
-      if (sortKey === 'lead') {
-        return normalize(a.name).localeCompare(normalize(b.name)) * dir;
-      }
-      if (sortKey === 'phone') {
-        return normalize(a.primary_phone).localeCompare(normalize(b.primary_phone)) * dir;
-      }
-      if (sortKey === 'status') {
-        return normalize(a.status).localeCompare(normalize(b.status)) * dir;
-      }
-      if (sortKey === 'state') {
-        return normalize(a.filing_state).localeCompare(normalize(b.filing_state)) * dir;
-      }
-      if (sortKey === 'filedDate') {
-        const aTime = a.insert_ts ? new Date(a.insert_ts).getTime() : 0;
-        const bTime = b.insert_ts ? new Date(b.insert_ts).getTime() : 0;
-        return (aTime - bTime) * dir;
-      }
-
-      const aTime = a.last_called_ts ? new Date(a.last_called_ts).getTime() : 0;
-      const bTime = b.last_called_ts ? new Date(b.last_called_ts).getTime() : 0;
-      return (aTime - bTime) * dir;
-    });
-
-    return sorted;
-  }, [columnFilters, debouncedSearchQuery, effectiveSelectedStates, filedDateRange, lastCalledRange, selectedPhoneFilters, sortDirection, sortKey, sourceBusinesses]);
-
-  const filteredCount = filteredBusinesses.length;
-  const totalPages = Math.max(1, Math.ceil(filteredCount / pageSize));
+  // Pagination (server handles filtering; we just display what server returned)
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const currentPage = Math.min(Math.max(initialPage, 1), totalPages);
-  const pagedBusinesses = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredBusinesses.slice(start, start + pageSize);
-  }, [currentPage, filteredBusinesses, pageSize]);
 
   const toggleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
-      return;
-    }
-
-    setSortKey(key);
-    setSortDirection(key === 'lead' || key === 'status' || key === 'state' ? 'asc' : 'desc');
+    const newDir =
+      sortKey === key
+        ? sortDirection === 'asc' ? 'desc' : 'asc'
+        : (key === 'lead' || key === 'status' || key === 'state' ? 'asc' : 'desc');
+    updateUrlParams({ sort: key, dir: newDir, page: '1' });
   };
 
   const sortIndicator = (key: string) => {
@@ -343,19 +289,34 @@ export default function CrmClient({
 
   const handleDisposition = async (status: string) => {
     if (!selectedLead) return;
-    await logDisposition(selectedLead.id, status);
+    setIsActionPending(true);
+    try {
+      await logDisposition(selectedLead.id, status);
+    } finally {
+      setIsActionPending(false);
+    }
   };
 
   const handleTogglePhoneDead = async (phoneId: number, isDead: boolean) => {
-    await togglePhoneDead(phoneId, isDead);
+    setIsActionPending(true);
+    try {
+      await togglePhoneDead(phoneId, isDead);
+    } finally {
+      setIsActionPending(false);
+    }
   };
 
   const handleAddManualNote = async (e: any) => {
     e.preventDefault();
     const body = e.target.note.value;
     if (!body.trim() || !selectedLead) return;
-    await addManualNote(selectedLead.id, body);
-    e.target.reset();
+    setIsActionPending(true);
+    try {
+      await addManualNote(selectedLead.id, body);
+      e.target.reset();
+    } finally {
+      setIsActionPending(false);
+    }
   };
 
   const contactCards = useMemo(() => {
@@ -402,10 +363,17 @@ export default function CrmClient({
 
   return (
     <div className="h-[100dvh] bg-slate-100 p-2 sm:p-4">
+      {/* Full-page loading overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/20">
+          <div className="w-12 h-12 rounded-full border-4 border-slate-300 border-t-blue-600 animate-spin" />
+        </div>
+      )}
+
       <div className="mx-auto flex h-full w-full max-w-[1700px] overflow-hidden rounded-xl border border-slate-200 bg-white font-sans text-slate-900 shadow-sm relative">
 
       {/* LEFT PANE: Master Table */}
-      <div className={`flex-1 flex flex-col min-w-0 border-r border-slate-200 bg-white w-full ${isPending ? 'opacity-70 pointer-events-none' : ''} transition-opacity`}>
+      <div className="flex-1 flex flex-col min-w-0 border-r border-slate-200 bg-white w-full">
 
         {/* Header & Controls */}
         <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-col gap-4 bg-slate-50/50">
@@ -415,7 +383,7 @@ export default function CrmClient({
               UCC Leads
             </h1>
             <div className="text-xs sm:text-sm font-medium text-slate-500 bg-white px-3 py-1 rounded-full shadow-sm border border-slate-200">
-              {filteredCount} found
+              {totalCount} found
             </div>
           </div>
 
@@ -445,8 +413,8 @@ export default function CrmClient({
                 type="text"
                 className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg leading-5 bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm transition-all"
                 placeholder="Search business name..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={searchInputValue}
+                onChange={(e) => setSearchInputValue(e.target.value)}
               />
             </div>
           </div>
@@ -484,7 +452,7 @@ export default function CrmClient({
                 </th>
                 <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   <button type="button" onClick={() => toggleSort('filedDate')} className="inline-flex items-center gap-1 hover:text-slate-700">
-                    Filed Date <span className="text-slate-400">{sortIndicator('filedDate')}</span>
+                    Filing Date <span className="text-slate-400">{sortIndicator('filedDate')}</span>
                   </button>
                 </th>
               </tr>
@@ -492,8 +460,8 @@ export default function CrmClient({
                 <th className="px-4 sm:px-6 py-2">
                   <input
                     type="text"
-                    value={columnFilters.lead}
-                    onChange={(e) => setColumnFilters((current) => ({ ...current, lead: e.target.value }))}
+                    value={leadInputValue}
+                    onChange={(e) => setLeadInputValue(e.target.value)}
                     className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 placeholder-slate-400"
                     placeholder="Filter..."
                   />
@@ -503,16 +471,23 @@ export default function CrmClient({
                     popupId="phone-filter"
                     label="Phone"
                     options={phoneFilterOptions}
-                    selectedValues={selectedPhoneFilters}
-                    onChange={(values) => setSelectedPhoneFilters(values as Array<'present' | 'missing'>)}
+                    selectedValues={selectedPhoneValues}
+                    onChange={(values) =>
+                      updateUrlParams({
+                        phone: values.length === 0 ? null : values.join(','),
+                        page: '1',
+                      })
+                    }
                     activePopup={activePopup}
                     setActivePopup={setActivePopup}
                   />
                 </th>
                 <th className="px-4 sm:px-6 py-2">
                   <select
-                    value={columnFilters.status}
-                    onChange={(e) => setColumnFilters((current) => ({ ...current, status: e.target.value }))}
+                    value={initialStatus}
+                    onChange={(e) =>
+                      updateUrlParams({ status: e.target.value || null, page: '1' })
+                    }
                     className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 bg-white"
                   >
                     <option value="">All</option>
@@ -527,7 +502,14 @@ export default function CrmClient({
                     label="State"
                     options={stateFilterOptions}
                     selectedValues={effectiveSelectedStates}
-                    onChange={setSelectedStates}
+                    onChange={(values) =>
+                      updateUrlParams({
+                        states: values.length === allStateOptions.length || values.length === 0
+                          ? null
+                          : values.join(','),
+                        page: '1',
+                      })
+                    }
                     activePopup={activePopup}
                     setActivePopup={setActivePopup}
                   />
@@ -537,33 +519,50 @@ export default function CrmClient({
                     popupId="last-called-filter"
                     label="Last Called"
                     value={lastCalledRange}
-                    onChange={setLastCalledRange}
+                    onChange={(next) =>
+                      updateUrlParams({
+                        lcFrom: next.from || null,
+                        lcTo: next.to || null,
+                        page: '1',
+                      })
+                    }
                     activePopup={activePopup}
                     setActivePopup={setActivePopup}
                   />
                 </th>
                 <th className="hidden md:table-cell px-6 py-2">
-                  <DateRangeFilter
-                    popupId="filed-date-filter"
-                    label="Filed Date"
-                    value={filedDateRange}
-                    onChange={setFiledDateRange}
-                    activePopup={activePopup}
-                    setActivePopup={setActivePopup}
-                    align="right"
-                  />
+                  <div className="flex flex-col gap-1">
+                    <input
+                      type="date"
+                      value={filingDateMin}
+                      onChange={(e) =>
+                        updateUrlParams({ filingMin: e.target.value || null, page: '1' })
+                      }
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700"
+                      title="Filing date on or after"
+                    />
+                    {filingDateMin && (
+                      <button
+                        type="button"
+                        onClick={() => updateUrlParams({ filingMin: null, page: '1' })}
+                        className="text-[10px] text-slate-400 hover:text-slate-600 text-left"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-100">
-              {pagedBusinesses.length === 0 && (
+              {businesses.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-12 text-center text-slate-500 text-sm">
                     No records matched the current filters.
                   </td>
                 </tr>
               )}
-              {pagedBusinesses.map((business: any) => {
+              {businesses.map((business: any) => {
                 const isSelected = selectedLead?.id === business.id;
 
                 const statusColors: any = {
@@ -613,7 +612,7 @@ export default function CrmClient({
                       {business.last_called_ts ? formatTimeAgo(business.last_called_ts) : 'Never'}
                     </td>
                     <td className="hidden md:table-cell px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                      {formatDate(business.insert_ts)}
+                      {formatDate(business.most_recent_filing_date)}
                     </td>
                   </tr>
                 );
@@ -624,12 +623,12 @@ export default function CrmClient({
 
         <div className="border-t border-slate-200 bg-white px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
           <div className="text-xs sm:text-sm text-slate-500">
-            Showing <span className="font-semibold text-slate-700">{pagedBusinesses.length}</span> of <span className="font-semibold text-slate-700">{filteredCount}</span>
+            Showing <span className="font-semibold text-slate-700">{businesses.length}</span> of <span className="font-semibold text-slate-700">{totalCount}</span>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={currentPage <= 1 || isPending}
+              disabled={currentPage <= 1 || isLoading}
               onClick={() => updateUrlParams({ page: String(currentPage - 1), leadId: null })}
               className="px-3 py-1.5 text-xs sm:text-sm rounded-md border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -640,7 +639,7 @@ export default function CrmClient({
             </span>
             <button
               type="button"
-              disabled={currentPage >= totalPages || isPending}
+              disabled={currentPage >= totalPages || isLoading}
               onClick={() => updateUrlParams({ page: String(currentPage + 1), leadId: null })}
               className="px-3 py-1.5 text-xs sm:text-sm rounded-md border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >

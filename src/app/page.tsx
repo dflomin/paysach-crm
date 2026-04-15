@@ -4,7 +4,34 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "./api/auth/[...nextauth]/route";
 import CrmClient from "./crm-client";
 
-export default async function ({
+const CONTACT_NAME_SUBQUERY = `(
+  SELECT COALESCE(
+    NULLIF(TRIM(c.name), ''),
+    NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), '')
+  )
+  FROM contacts c
+  WHERE c.business_id = b.id
+  ORDER BY
+    CASE
+      WHEN LOWER(COALESCE(c.role, '')) LIKE '%owner%' THEN 0
+      WHEN LOWER(COALESCE(c.role, '')) LIKE '%member%' THEN 1
+      ELSE 2
+    END,
+    c.id ASC
+  LIMIT 1
+) as contact_name`;
+
+// Safe sort column whitelist to prevent SQL injection
+const SORT_COLUMN_MAP: Record<string, string> = {
+  lead: 'b.name',
+  phone: 'primary_phone',
+  status: 'b.status',
+  state: 'filing_state',
+  lastCalled: 'b.last_called_ts',
+  filedDate: 'most_recent_filing_date',
+};
+
+export default async function Page({
   searchParams,
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -34,56 +61,141 @@ export default async function ({
     );
   }
 
-  const searchParameters = await searchParams;
-  const tab = typeof searchParameters.tab === 'string' ? searchParameters.tab : 'New';
-  const q = typeof searchParameters.q === 'string' ? searchParameters.q : '';
-  const leadId = typeof searchParameters.leadId === 'string' ? searchParameters.leadId : null;
-  const requestedPage = typeof searchParameters.page === 'string' ? Number.parseInt(searchParameters.page, 10) : 1;
+  const sp = await searchParams;
+  const getString = (key: string, def = '') =>
+    typeof sp[key] === 'string' ? (sp[key] as string) : def;
+
+  const tab         = getString('tab', 'New');
+  const q           = getString('q');
+  const leadId      = getString('leadId') || null;
+  const leadFilter  = getString('lead');
+  const statusFilter = getString('status');
+  const phoneParam  = getString('phone', 'present');
+  const statesParam = getString('states');
+  const lcFrom      = getString('lcFrom');
+  const lcTo        = getString('lcTo');
+  const filingMin   = getString('filingMin');
+  const sortParam   = getString('sort', 'lastCalled');
+  const dirParam    = getString('dir', 'desc');
+
+  const requestedPage = Number.parseInt(getString('page', '1'), 10);
   const pageSize = 25;
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
 
-  const searchQuery = `%${q}%`;
+  // --- Build WHERE conditions ---
+  const whereClauses: string[] = [];
+  const queryParams: any[] = [];
 
-  // Fetch full result set for current tab/search. Client applies filters/sort/paging.
-  const [businesses] = await db.execute(`
-    SELECT b.*,
-      (
-        SELECT COALESCE(
-          NULLIF(TRIM(c.name), ''),
-          NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), '')
-        )
-        FROM contacts c
-        WHERE c.business_id = b.id
-        ORDER BY
-          CASE
-            WHEN LOWER(COALESCE(c.role, '')) LIKE '%owner%' THEN 0
-            WHEN LOWER(COALESCE(c.role, '')) LIKE '%member%' THEN 1
-            ELSE 2
-          END,
-          c.id ASC
-        LIMIT 1
-      ) as contact_name,
-      (SELECT phone FROM phones p WHERE p.business_id = b.id AND p.type = 'primary' LIMIT 1) as primary_phone,
-      (SELECT is_dead FROM phones p WHERE p.business_id = b.id AND p.type = 'primary' LIMIT 1) as primary_phone_dead,
-      (SELECT f.state FROM filings f WHERE f.business_id = b.id ORDER BY f.filing_date DESC, f.id DESC LIMIT 1) as filing_state
-    FROM businesses b
-    WHERE (? = 'All' OR b.status = ?)
-    AND (
-      b.name LIKE ? OR 
-      EXISTS (SELECT 1 FROM contacts c WHERE c.business_id = b.id AND (c.first_name LIKE ? OR c.last_name LIKE ? OR c.name LIKE ?)) OR
-      EXISTS (SELECT 1 FROM phones p WHERE p.business_id = b.id AND p.phone LIKE ?)
-    )
-    ORDER BY b.last_called_ts DESC, b.insert_ts DESC
-  `, [
-    tab, tab,
-    searchQuery, // matches b.name
-    searchQuery, searchQuery, searchQuery, // matches contacts
-    searchQuery, // matches phones
+  // Tab / status filter
+  if (tab !== 'All') {
+    whereClauses.push('b.status = ?');
+    queryParams.push(tab);
+  }
+
+  // Status column filter (additional, works alongside tab)
+  if (statusFilter) {
+    whereClauses.push('b.status = ?');
+    queryParams.push(statusFilter);
+  }
+
+  // Full-text search (name, contacts, phones)
+  if (q) {
+    const sq = `%${q}%`;
+    whereClauses.push(
+      `(b.name LIKE ? OR EXISTS (SELECT 1 FROM contacts c WHERE c.business_id = b.id AND (c.first_name LIKE ? OR c.last_name LIKE ? OR c.name LIKE ?)) OR EXISTS (SELECT 1 FROM phones p WHERE p.business_id = b.id AND p.phone LIKE ?))`
+    );
+    queryParams.push(sq, sq, sq, sq, sq);
+  }
+
+  // Lead column text filter (name + contact name)
+  if (leadFilter) {
+    const lq = `%${leadFilter}%`;
+    whereClauses.push(
+      `(b.name LIKE ? OR EXISTS (SELECT 1 FROM contacts c WHERE c.business_id = b.id AND (c.first_name LIKE ? OR c.last_name LIKE ? OR c.name LIKE ?)))`
+    );
+    queryParams.push(lq, lq, lq, lq);
+  }
+
+  // Phone presence filter
+  const phoneValues = phoneParam ? phoneParam.split(',').filter(Boolean) : [];
+  const hasPresent = phoneValues.includes('present');
+  const hasMissing = phoneValues.includes('missing');
+  if (hasPresent && !hasMissing) {
+    whereClauses.push(
+      `EXISTS (SELECT 1 FROM phones p WHERE p.business_id = b.id AND p.type = 'primary' AND p.phone IS NOT NULL AND TRIM(p.phone) != '')`
+    );
+  } else if (hasMissing && !hasPresent) {
+    whereClauses.push(
+      `NOT EXISTS (SELECT 1 FROM phones p WHERE p.business_id = b.id AND p.type = 'primary' AND p.phone IS NOT NULL AND TRIM(p.phone) != '')`
+    );
+  }
+  // If both or neither selected: no phone condition (all pass)
+
+  // Filing state multi-select filter
+  const selectedStates = statesParam ? statesParam.split(',').filter(Boolean) : [];
+  if (selectedStates.length > 0) {
+    const placeholders = selectedStates.map(() => '?').join(', ');
+    whereClauses.push(
+      `(SELECT f.state FROM filings f WHERE f.business_id = b.id ORDER BY f.filing_date DESC, f.id DESC LIMIT 1) IN (${placeholders})`
+    );
+    queryParams.push(...selectedStates);
+  }
+
+  // Last called date range
+  if (lcFrom) {
+    whereClauses.push('b.last_called_ts IS NOT NULL AND DATE(b.last_called_ts) >= ?');
+    queryParams.push(lcFrom);
+  }
+  if (lcTo) {
+    whereClauses.push('b.last_called_ts IS NOT NULL AND DATE(b.last_called_ts) <= ?');
+    queryParams.push(lcTo);
+  }
+
+  // Filing date minimum
+  if (filingMin) {
+    whereClauses.push(
+      `(SELECT f.filing_date FROM filings f WHERE f.business_id = b.id ORDER BY f.filing_date DESC, f.id DESC LIMIT 1) >= ?`
+    );
+    queryParams.push(filingMin);
+  }
+
+  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+  // --- Sort ---
+  const sortCol = SORT_COLUMN_MAP[sortParam] ?? 'b.last_called_ts';
+  const sortDir = dirParam === 'asc' ? 'ASC' : 'DESC';
+  // NULLs last: `col IS NULL` = 0 for non-null, 1 for null → ascending keeps non-nulls first
+  const orderByClause = `ORDER BY ${sortCol} IS NULL, ${sortCol} ${sortDir}, b.id DESC`;
+
+  // --- Pagination ---
+  const offset = (page - 1) * pageSize;
+
+  // Run count + data queries in parallel
+  const [countResult, businessResult, stateResult] = await Promise.all([
+    db.execute(`SELECT COUNT(*) as total FROM businesses b ${whereClause}`, queryParams),
+    db.execute(
+      `SELECT b.*,
+        ${CONTACT_NAME_SUBQUERY},
+        (SELECT phone FROM phones p WHERE p.business_id = b.id AND p.type = 'primary' LIMIT 1) as primary_phone,
+        (SELECT is_dead FROM phones p WHERE p.business_id = b.id AND p.type = 'primary' LIMIT 1) as primary_phone_dead,
+        (SELECT f.state FROM filings f WHERE f.business_id = b.id ORDER BY f.filing_date DESC, f.id DESC LIMIT 1) as filing_state,
+        (SELECT f.filing_date FROM filings f WHERE f.business_id = b.id ORDER BY f.filing_date DESC, f.id DESC LIMIT 1) as most_recent_filing_date
+      FROM businesses b
+      ${whereClause}
+      ${orderByClause}
+      LIMIT ? OFFSET ?`,
+      [...queryParams, pageSize, offset]
+    ),
+    db.execute(
+      `SELECT DISTINCT state FROM filings WHERE state IS NOT NULL AND TRIM(state) != '' ORDER BY state`
+    ),
   ]);
 
-  const totalCount = (businesses as any[]).length;
+  const totalCount = (countResult[0] as any[])[0].total as number;
+  const businesses = businessResult[0] as any[];
+  const allStateOptions = (stateResult[0] as any[]).map((r: any) => r.state as string);
 
-  // 4. Fetch Selected Lead Details
+  // --- Fetch selected lead details ---
   let selectedLead = null;
   let phones: any[] = [];
   let contacts: any[] = [];
@@ -91,26 +203,10 @@ export default async function ({
   let notes: any[] = [];
 
   if (leadId) {
-    const [leadRows] = await db.execute(`
-      SELECT b.*, 
-      (
-        SELECT COALESCE(
-          NULLIF(TRIM(c.name), ''),
-          NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), '')
-        )
-        FROM contacts c
-        WHERE c.business_id = b.id
-        ORDER BY
-          CASE
-            WHEN LOWER(COALESCE(c.role, '')) LIKE '%owner%' THEN 0
-            WHEN LOWER(COALESCE(c.role, '')) LIKE '%member%' THEN 1
-            ELSE 2
-          END,
-          c.id ASC
-        LIMIT 1
-      ) as contact_name
-      FROM businesses b WHERE b.id = ?
-    `, [leadId]);
+    const [leadRows] = await db.execute(
+      `SELECT b.*, ${CONTACT_NAME_SUBQUERY} FROM businesses b WHERE b.id = ?`,
+      [leadId]
+    );
     selectedLead = (leadRows as any[])[0] || null;
 
     if (selectedLead) {
@@ -138,11 +234,21 @@ export default async function ({
       contacts={sanitizeData(contacts)}
       filings={sanitizeData(filings)}
       notes={sanitizeData(notes)}
+      totalCount={totalCount}
+      pageSize={pageSize}
       initialTab={tab}
       initialQuery={q}
+      initialLead={leadFilter}
+      initialStatus={statusFilter}
+      initialPhone={phoneParam}
+      initialStates={statesParam}
+      initialLcFrom={lcFrom}
+      initialLcTo={lcTo}
+      initialFilingMin={filingMin}
+      initialSort={sortParam}
+      initialDir={dirParam}
       initialPage={page}
-      pageSize={pageSize}
-      totalCount={totalCount}
+      allStateOptions={sanitizeData(allStateOptions)}
     />
   );
 }
