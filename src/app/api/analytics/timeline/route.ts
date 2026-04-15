@@ -21,7 +21,8 @@ export async function GET(request: NextRequest) {
   const dateFrom     = searchParams.get('dateFrom') ?? '';
   const dateTo       = searchParams.get('dateTo')   ?? '';
   const runIds       = searchParams.get('runIds')?.split(',').filter(Boolean) ?? [];
-  const intervalMins = Math.max(1, Math.min(1440, Number(searchParams.get('intervalMins') ?? '5')));
+  const rawInterval = Number(searchParams.get('intervalMins') ?? '5');
+  const intervalMins = Number.isNaN(rawInterval) ? 5 : Math.max(1, Math.min(1440, rawInterval));
 
   const db = getDbConnection();
   const conditions: string[] = ['b.insert_ts IS NOT NULL'];

@@ -254,12 +254,6 @@ export default function AnalyticsClient() {
     return Array.from(s).sort();
   }, [timelineData]);
 
-  const stateColourIndex = useMemo(() => {
-    const m = new Map<string, number>();
-    timelineStates.forEach((s, i) => m.set(s, i));
-    return m;
-  }, [timelineStates]);
-
   // ── Pivot timeline rows into per-bucket objects ───────────────────────────
   const pivotedTimeline = useMemo(() => {
     const map = new Map<string, Record<string, any>>();
