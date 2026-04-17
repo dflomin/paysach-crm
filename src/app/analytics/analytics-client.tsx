@@ -473,10 +473,24 @@ export default function AnalyticsClient() {
   );
 
   // ── Exa cost: 0.012 cents ($0.012 / 100) per exa tag row ────────────────────
+  // Includes exactly the tags shown in the donut charts (contact OR phone tags)
   const exaCost = useMemo(
     () => tagsData
-      .filter((r) => r.analytics_tag.toLowerCase().startsWith('exa'))
+      .filter((r) => {
+        const tag = r.analytics_tag.toLowerCase();
+        return tag.startsWith('exa') && (tag.includes('contact') || tag.includes('phone'));
+      })
       .reduce((sum, r) => sum + Number(r.count), 0) * (0.012 / 100),
+    [tagsData],
+  );
+
+  const exaCallCount = useMemo(
+    () => tagsData
+      .filter((r) => {
+        const tag = r.analytics_tag.toLowerCase();
+        return tag.startsWith('exa') && (tag.includes('contact') || tag.includes('phone'));
+      })
+      .reduce((sum, r) => sum + Number(r.count), 0),
     [tagsData],
   );
 
@@ -575,9 +589,10 @@ export default function AnalyticsClient() {
         />
         <StatCard
           icon={<Zap size={18} />}
-          label="Exa Cost (est.)"
+          label={exaCallCount > 0 ? `${exaCallCount.toLocaleString()} Exa Calls` : 'Exa Cost (est.)'}
           value={tagsData.length > 0 ? `$${exaCost.toFixed(4)}` : '—'}
           colour="#06b6d4"
+          subtitle={exaCallCount > 0 ? `contact + phone calls` : undefined}
         />
       </div>
 
