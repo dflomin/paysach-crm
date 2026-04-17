@@ -60,8 +60,8 @@ const STATE_COLOURS = [
 
 // ─── Colour palette for donut charts ─────────────────────────────────────────
 
-const EXA_COLOURS    = ['#6366f1','#818cf8','#a5b4fc','#c7d2fe','#e0e7ff','#4f46e5','#4338ca','#3730a3','#312e81','#2e1065'];
-const SERPER_COLOURS = ['#0ea5e9','#38bdf8','#7dd3fc','#bae6fd','#e0f2fe','#0284c7','#0369a1','#075985','#0c4a6e','#082f49'];
+const EXA_COLOURS    = ['#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe', '#e0e7ff', '#4f46e5', '#4338ca', '#3730a3', '#312e81', '#2e1065'];
+const SERPER_COLOURS = ['#0ea5e9', '#38bdf8', '#7dd3fc', '#bae6fd', '#e0f2fe', '#0284c7', '#0369a1', '#075985', '#0c4a6e', '#082f49'];
 
 // ─── Interval options ─────────────────────────────────────────────────────────
 
@@ -107,7 +107,7 @@ interface StatCardProps {
 function StatCard({ icon, label, value, colour }: StatCardProps) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm min-w-0">
-      <div className="shrink-0 rounded-lg p-2" style={{ backgroundColor: colour + '1a' }}>
+      <div className="shrink-0 rounded-lg p-2" style={{ backgroundColor: `${colour}20` }}>
         <span style={{ color: colour }}>{icon}</span>
       </div>
       <div className="min-w-0">

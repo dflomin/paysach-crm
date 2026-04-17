@@ -97,7 +97,8 @@ export async function GET(request: NextRequest) {
     const duplicateAddressCount = Number(dupRows[0]?.duplicateAddressCount ?? 0);
     const totalInstances        = Number(geminiRows[0]?.totalInstances ?? 0);
     // $0.30 per 1 million tokens
-    const geminiCost            = (totalInstances / 1_000_000) * 0.30;
+    const GEMINI_COST_PER_MILLION_TOKENS = 0.30;
+    const geminiCost            = (totalInstances / 1_000_000) * GEMINI_COST_PER_MILLION_TOKENS;
 
     return NextResponse.json({
       totalFilings,
