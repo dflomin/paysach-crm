@@ -10,8 +10,11 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
 } from 'recharts';
-import { RefreshCw, Calendar, Filter } from 'lucide-react';
+import { RefreshCw, Calendar, Filter, FileText, Building2, Copy, DollarSign } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,9 +38,15 @@ interface TimelineRow {
 }
 
 interface TagRow {
-  run_id: string;
   analytics_tag: string;
   count: number;
+}
+
+interface TotalsData {
+  totalFilings: number;
+  totalBusinesses: number;
+  duplicateAddressCount: number;
+  geminiCost: number;
 }
 
 // ─── Colour palette for states ───────────────────────────────────────────────
@@ -48,6 +57,11 @@ const STATE_COLOURS = [
   '#14b8a6', '#e11d48', '#d97706', '#7c3aed', '#0284c7',
   '#16a34a', '#dc2626', '#9333ea', '#0891b2', '#ca8a04',
 ];
+
+// ─── Colour palette for donut charts ─────────────────────────────────────────
+
+const EXA_COLOURS    = ['#6366f1','#818cf8','#a5b4fc','#c7d2fe','#e0e7ff','#4f46e5','#4338ca','#3730a3','#312e81','#2e1065'];
+const SERPER_COLOURS = ['#0ea5e9','#38bdf8','#7dd3fc','#bae6fd','#e0f2fe','#0284c7','#0369a1','#075985','#0c4a6e','#082f49'];
 
 // ─── Interval options ─────────────────────────────────────────────────────────
 
@@ -81,7 +95,95 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-// ─── Multi-select dropdown ────────────────────────────────────────────────────
+// ─── Stat card ────────────────────────────────────────────────────────────────
+
+interface StatCardProps {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  colour: string;
+}
+
+function StatCard({ icon, label, value, colour }: StatCardProps) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm min-w-0">
+      <div className="shrink-0 rounded-lg p-2" style={{ backgroundColor: colour + '1a' }}>
+        <span style={{ color: colour }}>{icon}</span>
+      </div>
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 truncate">{label}</p>
+        <p className="mt-0.5 text-xl font-bold text-slate-800 tabular-nums">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Donut chart with legend ───────────────────────────────────────────────────
+
+interface DonutChartProps {
+  data: { name: string; value: number }[];
+  colours: string[];
+  title: string;
+}
+
+function DonutTooltip({ active, payload }: { active?: boolean; payload?: { name: string; value: number }[] }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-lg text-xs">
+      <p className="font-semibold text-slate-800 font-mono">{payload[0].name}</p>
+      <p className="text-slate-600 mt-0.5">Count: <strong>{payload[0].value.toLocaleString()}</strong></p>
+    </div>
+  );
+}
+
+function DonutChart({ data, colours, title }: DonutChartProps) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-5 py-3">
+        <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+      </div>
+      <div className="p-4">
+        {data.length === 0 ? (
+          <p className="py-8 text-center text-xs text-slate-400">No data for the selected filters.</p>
+        ) : (
+          <div className="flex flex-col lg:flex-row items-start gap-4">
+            <div className="shrink-0">
+              <ResponsiveContainer width={200} height={200}>
+                <PieChart>
+                  <Pie
+                    data={data}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={90}
+                    paddingAngle={2}
+                    dataKey="value"
+                  >
+                    {data.map((_, i) => (
+                      <Cell key={i} fill={colours[i % colours.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<DonutTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <p className="text-center text-xs text-slate-500 mt-1">Total: <strong>{total.toLocaleString()}</strong></p>
+            </div>
+            <div className="flex-1 min-w-0 space-y-1 text-[11px] max-h-[220px] overflow-auto">
+              {data.map((d, i) => (
+                <div key={d.name} className="flex items-center gap-2">
+                  <span className="shrink-0 h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: colours[i % colours.length] }} />
+                  <span className="font-mono text-slate-600 truncate flex-1">{d.name}</span>
+                  <span className="tabular-nums text-slate-800 font-semibold shrink-0">{d.value.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface MultiSelectProps {
   label: string;
@@ -190,24 +292,6 @@ function TimelineTooltip({ active, payload, label }: TooltipProps) {
   );
 }
 
-// ─── Custom tooltip for tags chart ───────────────────────────────────────────
-
-function TagsTooltip({ active, payload, label }: TooltipProps) {
-  if (!active || !payload?.length) return null;
-  const total = payload.reduce((s: number, p: TooltipEntry) => s + (p.value ?? 0), 0);
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-lg text-xs space-y-1 max-w-[260px]">
-      <p className="font-semibold text-slate-800 font-mono text-[11px]">Run: {label}</p>
-      {[...payload].reverse().map((p: TooltipEntry) => (
-        <p key={p.dataKey} style={{ color: p.fill }}>
-          {p.dataKey}: <strong>{p.value?.toLocaleString()}</strong>
-        </p>
-      ))}
-      <p className="text-slate-500 pt-1 border-t border-slate-100">Total: <strong>{total.toLocaleString()}</strong></p>
-    </div>
-  );
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function AnalyticsClient() {
@@ -222,6 +306,7 @@ export default function AnalyticsClient() {
   const [statesData,   setStatesData]   = useState<StateRow[]>([]);
   const [timelineData, setTimelineData] = useState<TimelineRow[]>([]);
   const [tagsData,     setTagsData]     = useState<TagRow[]>([]);
+  const [totals,       setTotals]       = useState<TotalsData | null>(null);
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState('');
 
@@ -241,28 +326,31 @@ export default function AnalyticsClient() {
     setError('');
     try {
       const qs = new URLSearchParams();
-      if (dateFrom)           qs.set('dateFrom', dateFrom);
-      if (dateTo)             qs.set('dateTo',   dateTo);
-      if (selectedRuns.length) qs.set('runIds',  selectedRuns.join(','));
+      if (dateFrom)            qs.set('dateFrom', dateFrom);
+      if (dateTo)              qs.set('dateTo',   dateTo);
+      if (selectedRuns.length) qs.set('runIds',   selectedRuns.join(','));
       qs.set('intervalMins', intervalMins);
 
-      const [statesRes, timelineRes, tagsRes] = await Promise.all([
+      const [statesRes, timelineRes, tagsRes, totalsRes] = await Promise.all([
         fetch(`/api/analytics/states?${qs}`),
         fetch(`/api/analytics/timeline?${qs}`),
         fetch(`/api/analytics/tags?${qs}`),
+        fetch(`/api/analytics/totals?${qs}`),
       ]);
 
-      if (!statesRes.ok || !timelineRes.ok || !tagsRes.ok) throw new Error('Fetch failed');
+      if (!statesRes.ok || !timelineRes.ok || !tagsRes.ok || !totalsRes.ok) throw new Error('Fetch failed');
 
-      const [statesJson, timelineJson, tagsJson] = await Promise.all([
+      const [statesJson, timelineJson, tagsJson, totalsJson] = await Promise.all([
         statesRes.json(),
         timelineRes.json(),
         tagsRes.json(),
+        totalsRes.json(),
       ]);
 
       setStatesData(Array.isArray(statesJson) ? statesJson : []);
       setTimelineData(Array.isArray(timelineJson) ? timelineJson : []);
       setTagsData(Array.isArray(tagsJson) ? tagsJson : []);
+      setTotals(totalsJson && typeof totalsJson === 'object' && !Array.isArray(totalsJson) ? totalsJson : null);
     } catch {
       setError('Failed to load analytics data. Check your DB connection.');
     } finally {
@@ -284,30 +372,32 @@ export default function AnalyticsClient() {
 
   // ── Pivot timeline rows into per-bucket objects ───────────────────────────
   const pivotedTimeline = useMemo(() => {
-    const map = new Map<string, Record<string, any>>();
+    const map = new Map<string, Record<string, unknown>>();
     timelineData.forEach(({ bucket, state, count }) => {
       if (!map.has(bucket)) map.set(bucket, { bucket });
-      map.get(bucket)![state] = (map.get(bucket)![state] ?? 0) + count;
+      const entry = map.get(bucket)!;
+      entry[state] = ((entry[state] as number) ?? 0) + count;
     });
-    return Array.from(map.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
+    return Array.from(map.values()).sort((a, b) => (a.bucket as string).localeCompare(b.bucket as string));
   }, [timelineData]);
 
-  // ── Derive unique tag names ───────────────────────────────────────────────
-  const uniqueTags = useMemo(() => {
-    const s = new Set(tagsData.map((r) => r.analytics_tag));
-    return Array.from(s).sort();
-  }, [tagsData]);
+  // ── Derive donut data for exa* and serper* tags ───────────────────────────
+  const exaDonutData = useMemo(
+    () => tagsData
+      .filter((r) => r.analytics_tag.toLowerCase().startsWith('exa'))
+      .map((r) => ({ name: r.analytics_tag, value: Number(r.count) }))
+      .sort((a, b) => b.value - a.value),
+    [tagsData],
+  );
 
-  // ── Pivot tags rows into per-run_id objects ───────────────────────────────
-  const pivotedTags = useMemo(() => {
-    const map = new Map<string, Record<string, string | number>>();
-    tagsData.forEach(({ run_id, analytics_tag, count }) => {
-      if (!map.has(run_id)) map.set(run_id, { run_id, run_label: run_id.slice(0, 8) });
-      const entry = map.get(run_id)!;
-      entry[analytics_tag] = ((entry[analytics_tag] as number) ?? 0) + count;
-    });
-    return Array.from(map.values()).sort((a, b) => (a.run_id as string).localeCompare(b.run_id as string));
-  }, [tagsData]);
+  const serperDonutData = useMemo(
+    () => tagsData
+      .filter((r) => r.analytics_tag.toLowerCase().startsWith('serper'))
+      .map((r) => ({ name: r.analytics_tag, value: Number(r.count) }))
+      .sort((a, b) => b.value - a.value),
+    [tagsData],
+  );
+
   const formatBucket = (bucket: string) => {
     if (!bucket) return '';
     try {
@@ -322,6 +412,34 @@ export default function AnalyticsClient() {
 
   return (
     <div className="flex-1 min-h-0 bg-slate-50 p-4 space-y-4">
+      {/* ── Stat cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard
+          icon={<FileText size={18} />}
+          label="Total Filings"
+          value={totals ? totals.totalFilings.toLocaleString() : '—'}
+          colour="#3b82f6"
+        />
+        <StatCard
+          icon={<Building2 size={18} />}
+          label="Total Businesses"
+          value={totals ? totals.totalBusinesses.toLocaleString() : '—'}
+          colour="#10b981"
+        />
+        <StatCard
+          icon={<Copy size={18} />}
+          label="Duplicate Addresses"
+          value={totals ? totals.duplicateAddressCount.toLocaleString() : '—'}
+          colour="#f59e0b"
+        />
+        <StatCard
+          icon={<DollarSign size={18} />}
+          label="Gemini Cost (est.)"
+          value={totals ? `$${totals.geminiCost.toFixed(4)}` : '—'}
+          colour="#8b5cf6"
+        />
+      </div>
+
       {/* ── Filter bar ── */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4">
         <div className="flex flex-wrap items-end gap-4">
@@ -433,7 +551,7 @@ export default function AnalyticsClient() {
             <BarChart
               data={pivotedTimeline}
               margin={{ top: 8, right: 16, left: 0, bottom: 24 }}
-              barCategoryGap="15%"
+              barCategoryGap="0%"
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
               <XAxis
@@ -470,50 +588,19 @@ export default function AnalyticsClient() {
         )}
       </Card>
 
-      {/* ── Chart 3: Tag counts per run ── */}
-      <Card title="Analytics Tags per Run">
-        {pivotedTags.length === 0 && !loading ? (
-          <p className="py-8 text-center text-xs text-slate-400">No data for the selected filters.</p>
-        ) : (
-          <ResponsiveContainer width="100%" height={360}>
-            <BarChart
-              data={pivotedTags}
-              margin={{ top: 8, right: 16, left: 0, bottom: 24 }}
-              barCategoryGap="25%"
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis
-                dataKey="run_label"
-                tick={{ fontSize: 10, fill: '#64748b', fontFamily: 'monospace' }}
-                tickLine={false}
-                axisLine={{ stroke: '#e2e8f0' }}
-                angle={-20}
-                textAnchor="end"
-                interval={0}
-              />
-              <YAxis
-                tick={{ fontSize: 11, fill: '#64748b' }}
-                tickLine={false}
-                axisLine={false}
-                width={48}
-              />
-              <Tooltip content={<TagsTooltip />} cursor={{ fill: 'rgba(148,163,184,0.12)' }} />
-              <Legend
-                wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
-              />
-              {uniqueTags.map((tag, i) => (
-                <Bar
-                  key={tag}
-                  dataKey={tag}
-                  stackId="c"
-                  fill={STATE_COLOURS[i % STATE_COLOURS.length]}
-                  radius={i === uniqueTags.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
-                />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </Card>
+      {/* ── Charts 3 & 4: Tag donuts ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <DonutChart
+          title="Exa Tags"
+          data={exaDonutData}
+          colours={EXA_COLOURS}
+        />
+        <DonutChart
+          title="Serper Tags"
+          data={serperDonutData}
+          colours={SERPER_COLOURS}
+        />
+      </div>
     </div>
   );
 }

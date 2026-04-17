@@ -8,9 +8,10 @@ import { getDbConnection } from '@/lib/db';
  * Query params:
  *   dateFrom — ISO date string (inclusive), filters on insert_ts
  *   dateTo   — ISO date string (inclusive), filters on insert_ts
+ *   runIds   — comma-separated run_meta ids
  *
- * Returns: Array<{ run_id: string, analytics_tag: string, count: number }>
- * Each row is the number of records with a given tag for a given run_id.
+ * Returns: Array<{ analytics_tag: string, count: number }>
+ * Each row is the total number of records with a given tag across all matching runs.
  */
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -19,10 +20,10 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const dateFrom = searchParams.get('dateFrom') ?? '';
   const dateTo   = searchParams.get('dateTo')   ?? '';
+  const runIds   = searchParams.get('runIds')?.split(',').filter(Boolean) ?? [];
 
   const db = getDbConnection();
   const conditions: string[] = [
-    'run_id IS NOT NULL',
     'analytics_tag IS NOT NULL',
     "analytics_tag != ''",
   ];
@@ -36,21 +37,25 @@ export async function GET(request: NextRequest) {
     conditions.push('insert_ts <= DATE_ADD(?, INTERVAL 1 DAY)');
     params.push(dateTo);
   }
+  if (runIds.length > 0) {
+    const ph = runIds.map(() => '?').join(',');
+    conditions.push(`run_id IN (${ph})`);
+    params.push(...runIds.map(Number));
+  }
 
   const where = `WHERE ${conditions.join(' AND ')}`;
 
   try {
     const [rows] = await db.execute(
       `SELECT
-         run_id,
          analytics_tag,
          COUNT(*) AS count
        FROM analytics
        ${where}
-       GROUP BY run_id, analytics_tag
-       ORDER BY run_id, analytics_tag`,
+       GROUP BY analytics_tag
+       ORDER BY analytics_tag`,
       params
-    ) as [{ run_id: string; analytics_tag: string; count: number }[], unknown];
+    ) as [{ analytics_tag: string; count: number }[], unknown];
 
     return NextResponse.json(rows);
   } catch (err) {
