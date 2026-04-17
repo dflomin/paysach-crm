@@ -34,6 +34,12 @@ interface TimelineRow {
   count: number;
 }
 
+interface TagRow {
+  run_id: string;
+  analytics_tag: string;
+  count: number;
+}
+
 // ─── Colour palette for states ───────────────────────────────────────────────
 
 const STATE_COLOURS = [
@@ -184,6 +190,24 @@ function TimelineTooltip({ active, payload, label }: TooltipProps) {
   );
 }
 
+// ─── Custom tooltip for tags chart ───────────────────────────────────────────
+
+function TagsTooltip({ active, payload, label }: TooltipProps) {
+  if (!active || !payload?.length) return null;
+  const total = payload.reduce((s: number, p: TooltipEntry) => s + (p.value ?? 0), 0);
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-lg text-xs space-y-1 max-w-[260px]">
+      <p className="font-semibold text-slate-800 font-mono text-[11px]">Run: {label}</p>
+      {[...payload].reverse().map((p: TooltipEntry) => (
+        <p key={p.dataKey} style={{ color: p.fill }}>
+          {p.dataKey}: <strong>{p.value?.toLocaleString()}</strong>
+        </p>
+      ))}
+      <p className="text-slate-500 pt-1 border-t border-slate-100">Total: <strong>{total.toLocaleString()}</strong></p>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function AnalyticsClient() {
@@ -197,6 +221,7 @@ export default function AnalyticsClient() {
   // ── Data state ──
   const [statesData,   setStatesData]   = useState<StateRow[]>([]);
   const [timelineData, setTimelineData] = useState<TimelineRow[]>([]);
+  const [tagsData,     setTagsData]     = useState<TagRow[]>([]);
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState('');
 
@@ -221,20 +246,23 @@ export default function AnalyticsClient() {
       if (selectedRuns.length) qs.set('runIds',  selectedRuns.join(','));
       qs.set('intervalMins', intervalMins);
 
-      const [statesRes, timelineRes] = await Promise.all([
+      const [statesRes, timelineRes, tagsRes] = await Promise.all([
         fetch(`/api/analytics/states?${qs}`),
         fetch(`/api/analytics/timeline?${qs}`),
+        fetch(`/api/analytics/tags?${qs}`),
       ]);
 
-      if (!statesRes.ok || !timelineRes.ok) throw new Error('Fetch failed');
+      if (!statesRes.ok || !timelineRes.ok || !tagsRes.ok) throw new Error('Fetch failed');
 
-      const [statesJson, timelineJson] = await Promise.all([
+      const [statesJson, timelineJson, tagsJson] = await Promise.all([
         statesRes.json(),
         timelineRes.json(),
+        tagsRes.json(),
       ]);
 
       setStatesData(Array.isArray(statesJson) ? statesJson : []);
       setTimelineData(Array.isArray(timelineJson) ? timelineJson : []);
+      setTagsData(Array.isArray(tagsJson) ? tagsJson : []);
     } catch {
       setError('Failed to load analytics data. Check your DB connection.');
     } finally {
@@ -264,7 +292,22 @@ export default function AnalyticsClient() {
     return Array.from(map.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
   }, [timelineData]);
 
-  // ── Format bucket label for X-axis ───────────────────────────────────────
+  // ── Derive unique tag names ───────────────────────────────────────────────
+  const uniqueTags = useMemo(() => {
+    const s = new Set(tagsData.map((r) => r.analytics_tag));
+    return Array.from(s).sort();
+  }, [tagsData]);
+
+  // ── Pivot tags rows into per-run_id objects ───────────────────────────────
+  const pivotedTags = useMemo(() => {
+    const map = new Map<string, Record<string, string | number>>();
+    tagsData.forEach(({ run_id, analytics_tag, count }) => {
+      if (!map.has(run_id)) map.set(run_id, { run_id, run_label: run_id.slice(0, 8) });
+      const entry = map.get(run_id)!;
+      entry[analytics_tag] = ((entry[analytics_tag] as number) ?? 0) + count;
+    });
+    return Array.from(map.values()).sort((a, b) => (a.run_id as string).localeCompare(b.run_id as string));
+  }, [tagsData]);
   const formatBucket = (bucket: string) => {
     if (!bucket) return '';
     try {
@@ -420,6 +463,51 @@ export default function AnalyticsClient() {
                   stackId="b"
                   fill={STATE_COLOURS[i % STATE_COLOURS.length]}
                   radius={i === timelineStates.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </Card>
+
+      {/* ── Chart 3: Tag counts per run ── */}
+      <Card title="Analytics Tags per Run">
+        {pivotedTags.length === 0 && !loading ? (
+          <p className="py-8 text-center text-xs text-slate-400">No data for the selected filters.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={360}>
+            <BarChart
+              data={pivotedTags}
+              margin={{ top: 8, right: 16, left: 0, bottom: 24 }}
+              barCategoryGap="25%"
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <XAxis
+                dataKey="run_label"
+                tick={{ fontSize: 10, fill: '#64748b', fontFamily: 'monospace' }}
+                tickLine={false}
+                axisLine={{ stroke: '#e2e8f0' }}
+                angle={-20}
+                textAnchor="end"
+                interval={0}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: '#64748b' }}
+                tickLine={false}
+                axisLine={false}
+                width={48}
+              />
+              <Tooltip content={<TagsTooltip />} cursor={{ fill: 'rgba(148,163,184,0.12)' }} />
+              <Legend
+                wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
+              />
+              {uniqueTags.map((tag, i) => (
+                <Bar
+                  key={tag}
+                  dataKey={tag}
+                  stackId="c"
+                  fill={STATE_COLOURS[i % STATE_COLOURS.length]}
+                  radius={i === uniqueTags.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
                 />
               ))}
             </BarChart>
