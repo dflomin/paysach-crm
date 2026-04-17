@@ -84,11 +84,12 @@ function Label({ children }: { children: React.ReactNode }) {
   return <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">{children}</span>;
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({ title, children, headerExtra }: { title: string; children: React.ReactNode; headerExtra?: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-100 px-5 py-3">
+      <div className="border-b border-slate-100 px-5 py-3 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+        {headerExtra}
       </div>
       <div className="p-4">{children}</div>
     </div>
@@ -139,24 +140,24 @@ function DonutTooltip({ active, payload }: { active?: boolean; payload?: { name:
 function DonutChart({ data, colours, title }: DonutChartProps) {
   const total = data.reduce((s, d) => s + d.value, 0);
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-100 px-5 py-3">
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm flex flex-col">
+      <div className="border-b border-slate-100 px-4 py-3">
         <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
       </div>
-      <div className="p-4">
+      <div className="p-3 flex-1">
         {data.length === 0 ? (
-          <p className="py-8 text-center text-xs text-slate-400">No data for the selected filters.</p>
+          <p className="py-8 text-center text-xs text-slate-400">No data.</p>
         ) : (
-          <div className="flex flex-col lg:flex-row items-start gap-4">
-            <div className="shrink-0">
-              <ResponsiveContainer width={200} height={200}>
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-full">
+              <ResponsiveContainer width="100%" height={160}>
                 <PieChart>
                   <Pie
                     data={data}
                     cx="50%"
                     cy="50%"
-                    innerRadius={55}
-                    outerRadius={90}
+                    innerRadius={45}
+                    outerRadius={72}
                     paddingAngle={2}
                     dataKey="value"
                   >
@@ -167,9 +168,9 @@ function DonutChart({ data, colours, title }: DonutChartProps) {
                   <Tooltip content={<DonutTooltip />} />
                 </PieChart>
               </ResponsiveContainer>
-              <p className="text-center text-xs text-slate-500 mt-1">Total: <strong>{total.toLocaleString()}</strong></p>
+              <p className="text-center text-xs text-slate-500 mt-0.5">Total: <strong>{total.toLocaleString()}</strong></p>
             </div>
-            <div className="flex-1 min-w-0 space-y-1 text-[11px] max-h-[220px] overflow-auto">
+            <div className="w-full space-y-1 text-[11px] max-h-[140px] overflow-auto">
               {data.map((d, i) => (
                 <div key={d.name} className="flex items-center gap-2">
                   <span className="shrink-0 h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: colours[i % colours.length] }} />
@@ -382,17 +383,33 @@ export default function AnalyticsClient() {
   }, [timelineData]);
 
   // ── Derive donut data for exa* and serper* tags ───────────────────────────
-  const exaDonutData = useMemo(
+  const exaContactsDonutData = useMemo(
     () => tagsData
-      .filter((r) => r.analytics_tag.toLowerCase().startsWith('exa'))
+      .filter((r) => r.analytics_tag.toLowerCase().startsWith('exa') && r.analytics_tag.toLowerCase().includes('contact'))
       .map((r) => ({ name: r.analytics_tag, value: Number(r.count) }))
       .sort((a, b) => b.value - a.value),
     [tagsData],
   );
 
-  const serperDonutData = useMemo(
+  const exaPhoneDonutData = useMemo(
     () => tagsData
-      .filter((r) => r.analytics_tag.toLowerCase().startsWith('serper'))
+      .filter((r) => r.analytics_tag.toLowerCase().startsWith('exa') && r.analytics_tag.toLowerCase().includes('phone'))
+      .map((r) => ({ name: r.analytics_tag, value: Number(r.count) }))
+      .sort((a, b) => b.value - a.value),
+    [tagsData],
+  );
+
+  const serperOwnerDonutData = useMemo(
+    () => tagsData
+      .filter((r) => r.analytics_tag.toLowerCase().startsWith('serper') && r.analytics_tag.toLowerCase().includes('owner'))
+      .map((r) => ({ name: r.analytics_tag, value: Number(r.count) }))
+      .sort((a, b) => b.value - a.value),
+    [tagsData],
+  );
+
+  const serperPhonesDonutData = useMemo(
+    () => tagsData
+      .filter((r) => r.analytics_tag.toLowerCase().startsWith('serper') && r.analytics_tag.toLowerCase().includes('phone'))
       .map((r) => ({ name: r.analytics_tag, value: Number(r.count) }))
       .sort((a, b) => b.value - a.value),
     [tagsData],
@@ -412,34 +429,6 @@ export default function AnalyticsClient() {
 
   return (
     <div className="flex-1 min-h-0 bg-slate-50 p-4 space-y-4">
-      {/* ── Stat cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard
-          icon={<FileText size={18} />}
-          label="Total Filings"
-          value={totals ? totals.totalFilings.toLocaleString() : '—'}
-          colour="#3b82f6"
-        />
-        <StatCard
-          icon={<Building2 size={18} />}
-          label="Total Businesses"
-          value={totals ? totals.totalBusinesses.toLocaleString() : '—'}
-          colour="#10b981"
-        />
-        <StatCard
-          icon={<Copy size={18} />}
-          label="Duplicate Addresses"
-          value={totals ? totals.duplicateAddressCount.toLocaleString() : '—'}
-          colour="#f59e0b"
-        />
-        <StatCard
-          icon={<DollarSign size={18} />}
-          label="Gemini Cost (est.)"
-          value={totals ? `$${totals.geminiCost.toFixed(4)}` : '—'}
-          colour="#8b5cf6"
-        />
-      </div>
-
       {/* ── Filter bar ── */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4">
         <div className="flex flex-wrap items-end gap-4">
@@ -478,20 +467,6 @@ export default function AnalyticsClient() {
             />
           </div>
 
-          {/* Timeline interval */}
-          <div>
-            <Label>Bucket Interval</Label>
-            <select
-              value={intervalMins}
-              onChange={(e) => setIntervalMins(e.target.value)}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm hover:border-slate-400"
-            >
-              {INTERVAL_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
-
           {/* Refresh button */}
           <button
             type="button"
@@ -504,6 +479,34 @@ export default function AnalyticsClient() {
           </button>
         </div>
         {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+      </div>
+
+      {/* ── Stat cards ── */}
+      <div className="grid grid-cols-4 gap-3">
+        <StatCard
+          icon={<FileText size={18} />}
+          label="Total Filings"
+          value={totals ? totals.totalFilings.toLocaleString() : '—'}
+          colour="#3b82f6"
+        />
+        <StatCard
+          icon={<Building2 size={18} />}
+          label="Total Businesses"
+          value={totals ? totals.totalBusinesses.toLocaleString() : '—'}
+          colour="#10b981"
+        />
+        <StatCard
+          icon={<Copy size={18} />}
+          label="Duplicate Addresses"
+          value={totals ? totals.duplicateAddressCount.toLocaleString() : '—'}
+          colour="#f59e0b"
+        />
+        <StatCard
+          icon={<DollarSign size={18} />}
+          label="Gemini Cost (est.)"
+          value={totals ? `$${totals.geminiCost.toFixed(4)}` : '—'}
+          colour="#8b5cf6"
+        />
       </div>
 
       {/* ── Chart 1: Businesses per state (with/without phone) ── */}
@@ -531,10 +534,7 @@ export default function AnalyticsClient() {
                 width={48}
               />
               <Tooltip content={<StatesTooltip />} cursor={{ fill: 'rgba(148,163,184,0.12)' }} />
-              <Legend
-                wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
-                formatter={(value) => value === 'with_phone' ? 'With phone' : 'Without phone'}
-              />
+              <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
               <Bar dataKey="with_phone"    name="With phone"    stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
               <Bar dataKey="without_phone" name="Without phone" stackId="a" fill="#f87171" radius={[3, 3, 0, 0]} />
             </BarChart>
@@ -543,7 +543,23 @@ export default function AnalyticsClient() {
       </Card>
 
       {/* ── Chart 2: Insert volume over time by state ── */}
-      <Card title={`Insert Volume Over Time by State — ${INTERVAL_OPTIONS.find((o) => o.value === intervalMins)?.label ?? intervalMins + ' min'} buckets`}>
+      <Card
+        title="Insert Volume Over Time by State"
+        headerExtra={
+          <div className="flex items-center gap-2 shrink-0">
+            <Label>Interval</Label>
+            <select
+              value={intervalMins}
+              onChange={(e) => setIntervalMins(e.target.value)}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm hover:border-slate-400"
+            >
+              {INTERVAL_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+        }
+      >
         {pivotedTimeline.length === 0 && !loading ? (
           <p className="py-8 text-center text-xs text-slate-400">No data for the selected filters.</p>
         ) : (
@@ -588,18 +604,20 @@ export default function AnalyticsClient() {
         )}
       </Card>
 
-      {/* ── Charts 3 & 4: Tag donuts ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <DonutChart
-          title="Exa Tags"
-          data={exaDonutData}
-          colours={EXA_COLOURS}
-        />
-        <DonutChart
-          title="Serper Tags"
-          data={serperDonutData}
-          colours={SERPER_COLOURS}
-        />
+      {/* ── Charts 3–6: Tag donuts ── */}
+      <div className="flex gap-4">
+        <div className="w-1/4 min-w-0">
+          <DonutChart title="Exa Contacts" data={exaContactsDonutData} colours={EXA_COLOURS} />
+        </div>
+        <div className="w-1/4 min-w-0">
+          <DonutChart title="Exa Phone" data={exaPhoneDonutData} colours={EXA_COLOURS} />
+        </div>
+        <div className="w-1/4 min-w-0">
+          <DonutChart title="Serper Owner" data={serperOwnerDonutData} colours={SERPER_COLOURS} />
+        </div>
+        <div className="w-1/4 min-w-0">
+          <DonutChart title="Serper Phones" data={serperPhonesDonutData} colours={SERPER_COLOURS} />
+        </div>
       </div>
     </div>
   );
