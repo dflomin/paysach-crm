@@ -85,17 +85,20 @@ export async function GET(request: NextRequest) {
     ) as [{ duplicateAddressCount: number }[], unknown];
 
     const [geminiRows] = await db.execute(
-      `SELECT COALESCE(SUM(instances), 0) AS totalInstances
+      `SELECT
+         COALESCE(SUM(instances), 0) AS totalInstances,
+         COUNT(*)                    AS geminiRequests
        FROM analytics
        WHERE analytics_tag = 'COUNT_GEMINI_COST_TOKENS'
        ${analyticsWhere}`,
       analyticsParams
-    ) as [{ totalInstances: number }[], unknown];
+    ) as [{ totalInstances: number; geminiRequests: number }[], unknown];
 
     const totalBusinesses       = Number(bizRows[0]?.totalBusinesses ?? 0);
     const totalFilings          = Number(bizRows[0]?.totalFilings ?? 0);
     const duplicateAddressCount = Number(dupRows[0]?.duplicateAddressCount ?? 0);
     const totalInstances        = Number(geminiRows[0]?.totalInstances ?? 0);
+    const geminiRequests        = Number(geminiRows[0]?.geminiRequests ?? 0);
     // $0.30 per 1 million tokens
     const GEMINI_COST_PER_MILLION_TOKENS = 0.30;
     const geminiCost            = (totalInstances / 1_000_000) * GEMINI_COST_PER_MILLION_TOKENS;
@@ -106,6 +109,7 @@ export async function GET(request: NextRequest) {
       duplicateAddressCount,
       geminiCost,
       geminiTokens: totalInstances,
+      geminiRequests,
     });
   } catch (err) {
     console.error('[analytics/totals]', err);

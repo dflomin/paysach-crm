@@ -49,6 +49,7 @@ interface TotalsData {
   duplicateAddressCount: number;
   geminiCost: number;
   geminiTokens: number;
+  geminiRequests: number;
 }
 
 // ─── Colour palette for states ───────────────────────────────────────────────
@@ -471,11 +472,11 @@ export default function AnalyticsClient() {
     [tagsData],
   );
 
-  // ── Exa cost: $0.00012 per exa tag row ───────────────────────────────────────
+  // ── Exa cost: 0.012 cents ($0.012 / 100) per exa tag row ────────────────────
   const exaCost = useMemo(
     () => tagsData
       .filter((r) => r.analytics_tag.toLowerCase().startsWith('exa'))
-      .reduce((sum, r) => sum + Number(r.count), 0) * 0.00012,
+      .reduce((sum, r) => sum + Number(r.count), 0) * (0.012 / 100),
     [tagsData],
   );
 
@@ -567,7 +568,7 @@ export default function AnalyticsClient() {
         />
         <StatCard
           icon={<DollarSign size={18} />}
-          label="Gemini Cost (est.)"
+          label={totals ? `${totals.geminiRequests.toLocaleString()} Gemini Requests` : 'Gemini Requests'}
           value={totals ? `$${totals.geminiCost.toFixed(4)}` : '—'}
           colour="#8b5cf6"
           subtitle={totals ? `${totals.geminiTokens.toLocaleString()} tokens` : undefined}
