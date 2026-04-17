@@ -472,7 +472,7 @@ export default function AnalyticsClient() {
     [tagsData],
   );
 
-  // ── Exa cost: 0.012 cents ($0.012 / 100) per exa tag row ────────────────────
+  // ── Exa cost: $0.012 per request ─────────────────────────────────────────────
   // Includes exactly the tags shown in the donut charts (contact OR phone tags)
   const exaCost = useMemo(
     () => tagsData
@@ -480,7 +480,7 @@ export default function AnalyticsClient() {
         const tag = r.analytics_tag.toLowerCase();
         return tag.startsWith('exa') && (tag.includes('contact') || tag.includes('phone'));
       })
-      .reduce((sum, r) => sum + Number(r.count), 0) * (0.012 / 100),
+      .reduce((sum, r) => sum + Number(r.count), 0) * 0.012,
     [tagsData],
   );
 
