@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
          COALESCE(SUM(instances), 0) AS totalInstances,
          COUNT(*)                    AS geminiRequests
        FROM analytics
-       WHERE analytics_tag = 'COUNT_GEMINI_COST_TOKENS'
+       WHERE analytics_tag = 'COST_GEMINI_OUTPUT_TOKENS'
        ${analyticsWhere}`,
       analyticsParams
     ) as [{ totalInstances: number; geminiRequests: number }[], unknown];
