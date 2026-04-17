@@ -88,7 +88,8 @@ function loadSavedFilters(): { dateFrom?: string; dateTo?: string; intervalMins?
   if (typeof window === 'undefined') return {};
   try {
     return JSON.parse(localStorage.getItem(LS_FILTERS_KEY) ?? '{}');
-  } catch {
+  } catch (err) {
+    console.warn('[analytics] Failed to parse saved filters from localStorage:', err);
     return {};
   }
 }
@@ -353,7 +354,9 @@ export default function AnalyticsClient() {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem(LS_FILTERS_KEY, JSON.stringify({ dateFrom, dateTo, intervalMins, selectedRuns }));
-    } catch {/* non-fatal */}
+    } catch (err) {
+      console.warn('[analytics] Failed to persist filters to localStorage:', err);
+    }
   }, [dateFrom, dateTo, intervalMins, selectedRuns]);
 
   // ── Data state ──
