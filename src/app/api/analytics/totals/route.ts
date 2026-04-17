@@ -105,6 +105,7 @@ export async function GET(request: NextRequest) {
       totalBusinesses,
       duplicateAddressCount,
       geminiCost,
+      geminiTokens: totalInstances,
     });
   } catch (err) {
     console.error('[analytics/totals]', err);

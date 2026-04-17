@@ -14,7 +14,8 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { RefreshCw, Calendar, Filter, FileText, Building2, Copy, DollarSign } from 'lucide-react';
+import { RefreshCw, Calendar, Filter, FileText, Building2, Copy, DollarSign, Zap } from 'lucide-react';
+import type { PieLabelRenderProps } from 'recharts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ interface TotalsData {
   totalBusinesses: number;
   duplicateAddressCount: number;
   geminiCost: number;
+  geminiTokens: number;
 }
 
 // ─── Colour palette for states ───────────────────────────────────────────────
@@ -78,6 +80,19 @@ const INTERVAL_OPTIONS = [
   { value: '1440', label: '1 day'  },
 ];
 
+// ─── LocalStorage helpers ─────────────────────────────────────────────────────
+
+const LS_FILTERS_KEY = 'analytics_filters';
+
+function loadSavedFilters(): { dateFrom?: string; dateTo?: string; intervalMins?: string; selectedRuns?: string[] } {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(localStorage.getItem(LS_FILTERS_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
 // ─── Small shared UI helpers ──────────────────────────────────────────────────
 
 function Label({ children }: { children: React.ReactNode }) {
@@ -103,9 +118,10 @@ interface StatCardProps {
   label: string;
   value: string;
   colour: string;
+  subtitle?: string;
 }
 
-function StatCard({ icon, label, value, colour }: StatCardProps) {
+function StatCard({ icon, label, value, colour, subtitle }: StatCardProps) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm min-w-0">
       <div className="shrink-0 rounded-lg p-2" style={{ backgroundColor: `${colour}20` }}>
@@ -114,6 +130,7 @@ function StatCard({ icon, label, value, colour }: StatCardProps) {
       <div className="min-w-0">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 truncate">{label}</p>
         <p className="mt-0.5 text-xl font-bold text-slate-800 tabular-nums">{value}</p>
+        {subtitle && <p className="text-[11px] text-slate-400 tabular-nums">{subtitle}</p>}
       </div>
     </div>
   );
@@ -137,6 +154,32 @@ function DonutTooltip({ active, payload }: { active?: boolean; payload?: { name:
   );
 }
 
+const RADIAN = Math.PI / 180;
+
+function renderDonutLabel(props: PieLabelRenderProps) {
+  const { cx, cy, midAngle, outerRadius, percent } = props;
+  if ((percent ?? 0) < 0.04) return null;
+  const r = (typeof outerRadius === 'number' ? outerRadius : 68) + 16;
+  const angle = typeof midAngle === 'number' ? midAngle : 0;
+  const cxN = typeof cx === 'number' ? cx : 0;
+  const cyN = typeof cy === 'number' ? cy : 0;
+  const x = cxN + r * Math.cos(-angle * RADIAN);
+  const y = cyN + r * Math.sin(-angle * RADIAN);
+  return (
+    <text
+      x={x}
+      y={y}
+      fill="#64748b"
+      textAnchor={x > cxN ? 'start' : 'end'}
+      dominantBaseline="central"
+      fontSize={9}
+      fontFamily="sans-serif"
+    >
+      {`${((percent ?? 0) * 100).toFixed(0)}%`}
+    </text>
+  );
+}
+
 function DonutChart({ data, colours, title }: DonutChartProps) {
   const total = data.reduce((s, d) => s + d.value, 0);
   return (
@@ -150,16 +193,18 @@ function DonutChart({ data, colours, title }: DonutChartProps) {
         ) : (
           <div className="flex flex-col items-center gap-2">
             <div className="w-full">
-              <ResponsiveContainer width="100%" height={160}>
+              <ResponsiveContainer width="100%" height={200}>
                 <PieChart>
                   <Pie
                     data={data}
                     cx="50%"
-                    cy="50%"
+                    cy="46%"
                     innerRadius={45}
-                    outerRadius={72}
+                    outerRadius={68}
                     paddingAngle={2}
                     dataKey="value"
+                    label={renderDonutLabel}
+                    labelLine={false}
                   >
                     {data.map((_, i) => (
                       <Cell key={i} fill={colours[i % colours.length]} />
@@ -168,7 +213,7 @@ function DonutChart({ data, colours, title }: DonutChartProps) {
                   <Tooltip content={<DonutTooltip />} />
                 </PieChart>
               </ResponsiveContainer>
-              <p className="text-center text-xs text-slate-500 mt-0.5">Total: <strong>{total.toLocaleString()}</strong></p>
+              <p className="text-center text-xs text-slate-500 mt-3">Total: <strong>{total.toLocaleString()}</strong></p>
             </div>
             <div className="w-full space-y-1 text-[11px] max-h-[140px] overflow-auto">
               {data.map((d, i) => (
@@ -296,12 +341,20 @@ function TimelineTooltip({ active, payload, label }: TooltipProps) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function AnalyticsClient() {
-  // ── Filter state ──
-  const [dateFrom,     setDateFrom]     = useState('');
-  const [dateTo,       setDateTo]       = useState('');
+  // ── Filter state (initialised from localStorage) ──
+  const [dateFrom,     setDateFrom]     = useState(() => loadSavedFilters().dateFrom     ?? '');
+  const [dateTo,       setDateTo]       = useState(() => loadSavedFilters().dateTo       ?? '');
   const [runOptions,   setRunOptions]   = useState<RunOption[]>([]);
-  const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
-  const [intervalMins, setIntervalMins] = useState('5');
+  const [selectedRuns, setSelectedRuns] = useState<string[]>(() => loadSavedFilters().selectedRuns ?? []);
+  const [intervalMins, setIntervalMins] = useState(() => loadSavedFilters().intervalMins ?? '5');
+
+  // ── Persist filter state to localStorage ──
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(LS_FILTERS_KEY, JSON.stringify({ dateFrom, dateTo, intervalMins, selectedRuns }));
+    } catch {/* non-fatal */}
+  }, [dateFrom, dateTo, intervalMins, selectedRuns]);
 
   // ── Data state ──
   const [statesData,   setStatesData]   = useState<StateRow[]>([]);
@@ -415,6 +468,14 @@ export default function AnalyticsClient() {
     [tagsData],
   );
 
+  // ── Exa cost: $0.00012 per exa tag row ───────────────────────────────────────
+  const exaCost = useMemo(
+    () => tagsData
+      .filter((r) => r.analytics_tag.toLowerCase().startsWith('exa'))
+      .reduce((sum, r) => sum + Number(r.count), 0) * 0.00012,
+    [tagsData],
+  );
+
   const formatBucket = (bucket: string) => {
     if (!bucket) return '';
     try {
@@ -482,7 +543,7 @@ export default function AnalyticsClient() {
       </div>
 
       {/* ── Stat cards ── */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-5 gap-3">
         <StatCard
           icon={<FileText size={18} />}
           label="Total Filings"
@@ -506,6 +567,13 @@ export default function AnalyticsClient() {
           label="Gemini Cost (est.)"
           value={totals ? `$${totals.geminiCost.toFixed(4)}` : '—'}
           colour="#8b5cf6"
+          subtitle={totals ? `${totals.geminiTokens.toLocaleString()} tokens` : undefined}
+        />
+        <StatCard
+          icon={<Zap size={18} />}
+          label="Exa Cost (est.)"
+          value={tagsData.length > 0 ? `$${exaCost.toFixed(4)}` : '—'}
+          colour="#06b6d4"
         />
       </div>
 
