@@ -52,6 +52,15 @@ interface TotalsData {
   geminiRequests: number;
 }
 
+interface FallbackData {
+  ownerExaFound:      number;
+  ownerSerperRescued: number;
+  ownerBothFailed:    number;
+  phoneSerperFound:   number;
+  phoneExaRescued:    number;
+  phoneBothFailed:    number;
+}
+
 // ─── Colour palette for states ───────────────────────────────────────────────
 
 const STATE_COLOURS = [
@@ -340,6 +349,87 @@ function TimelineTooltip({ active, payload, label }: TooltipProps) {
   );
 }
 
+// ─── Fallback flow section ────────────────────────────────────────────────────
+
+interface FallbackFlowSectionProps {
+  title: string;
+  primaryLabel: string;
+  primaryColour: string;
+  fallbackLabel: string;
+  fallbackColour: string;
+  failLabel: string;
+  failColour: string;
+  primaryCount: number;
+  fallbackCount: number;
+  failCount: number;
+}
+
+function FallbackFlowSection({
+  title,
+  primaryLabel, primaryColour,
+  fallbackLabel, fallbackColour,
+  failLabel, failColour,
+  primaryCount, fallbackCount, failCount,
+}: FallbackFlowSectionProps) {
+  const total = primaryCount + fallbackCount + failCount;
+  const pct = (n: number) => total === 0 ? 0 : Math.round((n / total) * 100);
+
+  const rows = [
+    { label: primaryLabel,  colour: primaryColour,  count: primaryCount,  pct: pct(primaryCount)  },
+    { label: fallbackLabel, colour: fallbackColour, count: fallbackCount, pct: pct(fallbackCount) },
+    { label: failLabel,     colour: failColour,     count: failCount,     pct: pct(failCount)     },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold text-slate-700">{title}</p>
+
+      {/* Stacked progress bar */}
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100">
+        {rows.map((r) =>
+          r.count > 0 ? (
+            <div
+              key={r.label}
+              style={{ width: `${r.pct}%`, backgroundColor: r.colour }}
+              title={`${r.label}: ${r.count.toLocaleString()} (${r.pct}%)`}
+            />
+          ) : null
+        )}
+      </div>
+
+      {/* Legend rows */}
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-center gap-2">
+            <span
+              className="shrink-0 h-2.5 w-2.5 rounded-sm"
+              style={{ backgroundColor: r.colour }}
+            />
+            <span className="flex-1 text-[11px] text-slate-600 truncate">{r.label}</span>
+            <span className="tabular-nums text-[11px] font-semibold text-slate-800 shrink-0">
+              {r.count.toLocaleString()}
+            </span>
+            <span
+              className="tabular-nums text-[11px] w-9 text-right shrink-0"
+              style={{ color: r.colour }}
+            >
+              {total > 0 ? `${r.pct}%` : '—'}
+            </span>
+          </div>
+        ))}
+        <div className="flex items-center gap-2 border-t border-slate-100 pt-1.5">
+          <span className="shrink-0 h-2.5 w-2.5" />
+          <span className="flex-1 text-[11px] text-slate-400">Total businesses</span>
+          <span className="tabular-nums text-[11px] font-semibold text-slate-600 shrink-0">
+            {total.toLocaleString()}
+          </span>
+          <span className="w-9" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function AnalyticsClient() {
@@ -365,6 +455,7 @@ export default function AnalyticsClient() {
   const [timelineData, setTimelineData] = useState<TimelineRow[]>([]);
   const [tagsData,     setTagsData]     = useState<TagRow[]>([]);
   const [totals,       setTotals]       = useState<TotalsData | null>(null);
+  const [fallback,     setFallback]     = useState<FallbackData | null>(null);
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState('');
 
@@ -389,26 +480,29 @@ export default function AnalyticsClient() {
       if (selectedRuns.length) qs.set('runIds',   selectedRuns.join(','));
       qs.set('intervalMins', intervalMins);
 
-      const [statesRes, timelineRes, tagsRes, totalsRes] = await Promise.all([
+      const [statesRes, timelineRes, tagsRes, totalsRes, fallbackRes] = await Promise.all([
         fetch(`/api/analytics/states?${qs}`),
         fetch(`/api/analytics/timeline?${qs}`),
         fetch(`/api/analytics/tags?${qs}`),
         fetch(`/api/analytics/totals?${qs}`),
+        fetch(`/api/analytics/fallback-coverage?${qs}`),
       ]);
 
-      if (!statesRes.ok || !timelineRes.ok || !tagsRes.ok || !totalsRes.ok) throw new Error('Fetch failed');
+      if (!statesRes.ok || !timelineRes.ok || !tagsRes.ok || !totalsRes.ok || !fallbackRes.ok) throw new Error('Fetch failed');
 
-      const [statesJson, timelineJson, tagsJson, totalsJson] = await Promise.all([
+      const [statesJson, timelineJson, tagsJson, totalsJson, fallbackJson] = await Promise.all([
         statesRes.json(),
         timelineRes.json(),
         tagsRes.json(),
         totalsRes.json(),
+        fallbackRes.json(),
       ]);
 
       setStatesData(Array.isArray(statesJson) ? statesJson : []);
       setTimelineData(Array.isArray(timelineJson) ? timelineJson : []);
       setTagsData(Array.isArray(tagsJson) ? tagsJson : []);
       setTotals(totalsJson && typeof totalsJson === 'object' && !Array.isArray(totalsJson) ? totalsJson : null);
+      setFallback(fallbackJson && typeof fallbackJson === 'object' && !Array.isArray(fallbackJson) ? fallbackJson : null);
     } catch {
       setError('Failed to load analytics data. Check your DB connection.');
     } finally {
@@ -706,6 +800,40 @@ export default function AnalyticsClient() {
           <DonutChart title="Serper Phones" data={serperPhonesDonutData} colours={SERPER_COLOURS} />
         </div>
       </div>
+
+      {/* ── Chart 7: Enrichment fallback coverage ── */}
+      <Card title="Enrichment Fallback Coverage — per business × run">
+        {!fallback && !loading ? (
+          <p className="py-8 text-center text-xs text-slate-400">No data for the selected filters.</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-6">
+            <FallbackFlowSection
+              title="Owner Search Flow"
+              primaryLabel="Exa found owner"
+              primaryColour="#6366f1"
+              fallbackLabel="Serper rescued (Exa failed)"
+              fallbackColour="#f59e0b"
+              failLabel="Both failed"
+              failColour="#ef4444"
+              primaryCount={fallback?.ownerExaFound ?? 0}
+              fallbackCount={fallback?.ownerSerperRescued ?? 0}
+              failCount={fallback?.ownerBothFailed ?? 0}
+            />
+            <FallbackFlowSection
+              title="Phone Search Flow"
+              primaryLabel="Serper found phone"
+              primaryColour="#0ea5e9"
+              fallbackLabel="Exa rescued (Serper failed)"
+              fallbackColour="#f59e0b"
+              failLabel="Both failed"
+              failColour="#ef4444"
+              primaryCount={fallback?.phoneSerperFound ?? 0}
+              fallbackCount={fallback?.phoneExaRescued ?? 0}
+              failCount={fallback?.phoneBothFailed ?? 0}
+            />
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
