@@ -4,7 +4,8 @@ import React, { useCallback, useEffect, useRef, useMemo, useState, useTransition
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import {
   Search, Phone, CheckCircle, FileText,
-  Building, User, PhoneOff, Briefcase, ChevronRight, ArrowLeft
+  Building, User, PhoneOff, Briefcase, ChevronRight, ArrowLeft,
+  Download, RefreshCw, X
 } from 'lucide-react';
 import { addManualNote, logDisposition, togglePhoneDead } from '@/app/actions/crm';
 
@@ -131,6 +132,193 @@ function DateRangeFilter({
   );
 }
 
+const DEFAULT_COLUMN_MAP: Record<string, string> = {
+  business_id: 'Business ID',
+  business_name: 'Business Name',
+  filing_id: 'Filing ID',
+  filing_date: 'Filing Date',
+  state: 'State',
+  lender_name: 'Lender Name',
+  contact_name: 'Contact Name',
+  contact_title: 'Contact Title',
+  phone_number: 'Phone Number',
+  phone_type: 'Phone Type',
+};
+
+function ExportModal({
+  searchParamsString,
+  onClose,
+}: {
+  searchParamsString: string;
+  onClose: () => void;
+}) {
+  const [columnMap, setColumnMap] = useState<Record<string, string>>({ ...DEFAULT_COLUMN_MAP });
+  const [sampleRow, setSampleRow] = useState<Record<string, unknown> | null>(null);
+  const [sampleTotal, setSampleTotal] = useState(0);
+  const [sampleOffset, setSampleOffset] = useState(0);
+  const [isLoadingSample, setIsLoadingSample] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const fetchSample = useCallback(async (offset: number) => {
+    setIsLoadingSample(true);
+    try {
+      const params = new URLSearchParams(searchParamsString);
+      params.set('sample', '1');
+      params.set('sampleOffset', String(offset));
+      const res = await fetch(`/api/export?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSampleRow(data.row);
+        setSampleTotal(data.total);
+        setSampleOffset(offset);
+      }
+    } finally {
+      setIsLoadingSample(false);
+    }
+  }, [searchParamsString]);
+
+  useEffect(() => {
+    fetchSample(0);
+  }, [fetchSample]);
+
+  const pickRandomSample = () => {
+    if (sampleTotal <= 1) return;
+    let next = sampleOffset;
+    while (next === sampleOffset && sampleTotal > 1) {
+      next = Math.floor(Math.random() * sampleTotal);
+    }
+    fetchSample(next);
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const params = new URLSearchParams(searchParamsString);
+      params.set('columns', JSON.stringify(columnMap));
+      const url = `/api/export?${params.toString()}`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = 'ucc-leads-export.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const fields = Object.keys(DEFAULT_COLUMN_MAP);
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+        {/* Modal header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Export to CSV</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {sampleTotal > 0
+                ? `${sampleTotal.toLocaleString()} record${sampleTotal !== 1 ? 's' : ''} will be exported with current filters`
+                : 'No records match the current filters'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Column mapping table */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Column Mapping &amp; Preview
+            </h3>
+            <button
+              type="button"
+              onClick={pickRandomSample}
+              disabled={isLoadingSample || sampleTotal <= 1}
+              className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <RefreshCw size={13} className={isLoadingSample ? 'animate-spin' : ''} />
+              Pick random sample
+            </button>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-[30%]">Data Field</th>
+                  <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider w-[35%]">Column Name</th>
+                  <th className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Sample Value</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {fields.map((field) => {
+                  const sampleVal = sampleRow ? (sampleRow[field] ?? '') : '';
+                  return (
+                    <tr key={field} className="hover:bg-slate-50/50">
+                      <td className="px-3 py-2 text-xs text-slate-600 font-medium whitespace-nowrap">
+                        {DEFAULT_COLUMN_MAP[field]}
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="text"
+                          value={columnMap[field] ?? ''}
+                          onChange={(e) =>
+                            setColumnMap((prev) => ({ ...prev, [field]: e.target.value }))
+                          }
+                          className="w-full rounded border border-slate-300 px-2 py-1 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-xs text-slate-500 truncate max-w-[160px]">
+                        {isLoadingSample ? (
+                          <span className="inline-block w-16 h-3 bg-slate-200 rounded animate-pulse" />
+                        ) : (
+                          <span title={String(sampleVal)}>{sampleVal !== '' && sampleVal !== null ? String(sampleVal) : <em className="text-slate-300">—</em>}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-md border border-slate-300 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={isExporting || sampleTotal === 0}
+            className="flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <Download size={15} />
+            {isExporting ? 'Exporting…' : `Export ${sampleTotal > 0 ? sampleTotal.toLocaleString() : ''} Records`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CrmClient({
   businesses = [],
   selectedLead = null,
@@ -218,6 +406,7 @@ export default function CrmClient({
   }, [leadInputValue, updateUrlParams]);
 
   const [activePopup, setActivePopup] = useState<string | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // --- Derive filter state from props (URL params read by server) ---
   const sortKey = initialSort;
@@ -361,8 +550,29 @@ export default function CrmClient({
     return mappedContacts;
   }, [contacts, phones, selectedLead]);
 
+  const exportSearchParamsString = useMemo(() => {
+    const params = new URLSearchParams();
+    if (initialTab) params.set('tab', initialTab);
+    if (initialQuery) params.set('q', initialQuery);
+    if (initialLead) params.set('lead', initialLead);
+    if (initialStatus) params.set('status', initialStatus);
+    if (initialPhone) params.set('phone', initialPhone);
+    if (initialStates) params.set('states', initialStates);
+    if (initialLcFrom) params.set('lcFrom', initialLcFrom);
+    if (initialLcTo) params.set('lcTo', initialLcTo);
+    if (initialFilingMin) params.set('filingMin', initialFilingMin);
+    return params.toString();
+  }, [initialTab, initialQuery, initialLead, initialStatus, initialPhone, initialStates, initialLcFrom, initialLcTo, initialFilingMin]);
+
   return (
     <div className="h-[100dvh] bg-slate-100 p-2 sm:p-4">
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          searchParamsString={exportSearchParamsString}
+          onClose={() => setShowExportModal(false)}
+        />
+      )}
       {/* Full-page loading overlay */}
       {isLoading && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/20">
@@ -382,8 +592,18 @@ export default function CrmClient({
               <Briefcase className="text-blue-600 hidden sm:block" size={24} />
               UCC Leads
             </h1>
-            <div className="text-xs sm:text-sm font-medium text-slate-500 bg-white px-3 py-1 rounded-full shadow-sm border border-slate-200">
-              {totalCount} found
+          <div className="flex items-center gap-2">
+              <div className="text-xs sm:text-sm font-medium text-slate-500 bg-white px-3 py-1 rounded-full shadow-sm border border-slate-200">
+                {totalCount} found
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowExportModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs sm:text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 shadow-sm transition-colors"
+              >
+                <Download size={14} />
+                Export
+              </button>
             </div>
           </div>
 
