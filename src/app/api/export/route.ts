@@ -1,4 +1,5 @@
 import { getDbConnection } from '@/lib/db';
+import { dedupeBusinessRows } from '@/lib/dedupe';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { NextRequest, NextResponse } from 'next/server';
@@ -89,6 +90,7 @@ const EXPORT_SELECT = `
   SELECT
     b.id AS business_id,
     b.name AS business_name,
+    (SELECT a.address FROM addresses a WHERE a.business_id = b.id LIMIT 1) AS business_address,
     (SELECT f.document_id FROM filings f WHERE f.business_id = b.id ORDER BY f.filing_date DESC, f.id DESC LIMIT 1) AS filing_id,
     (SELECT f.filing_date FROM filings f WHERE f.business_id = b.id ORDER BY f.filing_date DESC, f.id DESC LIMIT 1) AS filing_date,
     (SELECT f.state FROM filings f WHERE f.business_id = b.id ORDER BY f.filing_date DESC, f.id DESC LIMIT 1) AS state,
@@ -184,11 +186,21 @@ export async function GET(request: NextRequest) {
   const isSample = sp.get('sample') === '1';
 
   if (isSample) {
-    const [countResult] = await db.execute(
-      `SELECT COUNT(*) as total FROM businesses b ${whereClause}`,
+    const [allRowsResult] = await db.execute(
+      `${EXPORT_SELECT} ${whereClause} ORDER BY b.id DESC`,
       queryParams
     );
-    const total = (countResult as { total: number }[])[0].total;
+    const allRows = allRowsResult as Record<string, unknown>[];
+    for (const row of allRows) normalizeDateField(row, 'filing_date');
+
+    const deduped = dedupeBusinessRows(allRows, {
+      nameField: 'business_name',
+      stateField: 'state',
+      addressField: 'business_address',
+      phoneField: 'phone_number',
+    });
+
+    const total = deduped.length;
     if (total === 0) {
       return NextResponse.json({ row: null, total: 0 });
     }
@@ -196,12 +208,7 @@ export async function GET(request: NextRequest) {
       Math.max(parseInt(sp.get('sampleOffset') || '0', 10), 0),
       total - 1
     );
-    const [rows] = await db.execute(
-      `${EXPORT_SELECT} ${whereClause} ORDER BY b.id DESC LIMIT 1 OFFSET ?`,
-      [...queryParams, sampleOffset]
-    );
-    const row = (rows as Record<string, unknown>[])[0] ?? null;
-    if (row) normalizeDateField(row, 'filing_date');
+    const row = deduped[sampleOffset];
     return NextResponse.json({ row, total });
   }
 
@@ -241,10 +248,17 @@ export async function GET(request: NextRequest) {
     queryParams
   );
 
-  const dataRows = rows as Record<string, unknown>[];
-  for (const row of dataRows) {
+  const allRows = rows as Record<string, unknown>[];
+  for (const row of allRows) {
     normalizeDateField(row, 'filing_date');
   }
+
+  const dataRows = dedupeBusinessRows(allRows, {
+    nameField: 'business_name',
+    stateField: 'state',
+    addressField: 'business_address',
+    phoneField: 'phone_number',
+  });
 
   const fieldKeys = Object.keys(columnMap);
   const headerRow = fieldKeys.map((k) => escapeCSVValue(columnMap[k])).join(',');

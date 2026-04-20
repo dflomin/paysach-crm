@@ -1,4 +1,5 @@
 import { getDbConnection } from "@/lib/db";
+import { dedupeBusinessRows } from "@/lib/dedupe";
 import { Briefcase, LogIn } from "lucide-react";
 import { getServerSession } from "next-auth";
 import { authOptions } from "./api/auth/[...nextauth]/route";
@@ -167,33 +168,42 @@ export default async function Page({
   // NULLs last: `col IS NULL` = 0 for non-null, 1 for null → ascending keeps non-nulls first
   const orderByClause = `ORDER BY ${sortCol} IS NULL, ${sortCol} ${sortDir}, b.id DESC`;
 
-  // --- Pagination ---
-  const offset = (page - 1) * pageSize;
-
-  // Run count + data queries in parallel
-  const [countResult, businessResult, stateResult] = await Promise.all([
-    db.execute(`SELECT COUNT(*) as total FROM businesses b ${whereClause}`, queryParams),
+  // Run all rows + state list in parallel (no SQL pagination — dedup happens in JS)
+  const [businessResult, stateResult] = await Promise.all([
     db.execute(
       `SELECT b.*,
         ${CONTACT_NAME_SUBQUERY},
         (SELECT phone FROM phones p WHERE p.business_id = b.id AND p.type = 'primary' LIMIT 1) as primary_phone,
         (SELECT is_dead FROM phones p WHERE p.business_id = b.id AND p.type = 'primary' LIMIT 1) as primary_phone_dead,
         (SELECT f.state FROM filings f WHERE f.business_id = b.id ORDER BY f.filing_date DESC, f.id DESC LIMIT 1) as filing_state,
-        (SELECT f.filing_date FROM filings f WHERE f.business_id = b.id ORDER BY f.filing_date DESC, f.id DESC LIMIT 1) as most_recent_filing_date
+        (SELECT f.filing_date FROM filings f WHERE f.business_id = b.id ORDER BY f.filing_date DESC, f.id DESC LIMIT 1) as most_recent_filing_date,
+        (SELECT a.address FROM addresses a WHERE a.business_id = b.id LIMIT 1) as business_address
       FROM businesses b
       ${whereClause}
-      ${orderByClause}
-      LIMIT ? OFFSET ?`,
-      [...queryParams, pageSize, offset]
+      ${orderByClause}`,
+      queryParams
     ),
     db.execute(
       `SELECT DISTINCT state FROM filings WHERE state IS NOT NULL AND TRIM(state) != '' ORDER BY state`
     ),
   ]);
 
-  const totalCount = (countResult[0] as any[])[0].total as number;
-  const businesses = businessResult[0] as any[];
+  const allMatchingBusinesses = businessResult[0] as any[];
   const allStateOptions = (stateResult[0] as any[]).map((r: any) => r.state as string);
+
+  // Apply in-memory deduplication (exact + fuzzy name, fuzzy address, exact phone)
+  const deduped = dedupeBusinessRows(allMatchingBusinesses, {
+    nameField: 'name',
+    stateField: 'filing_state',
+    addressField: 'business_address',
+    phoneField: 'primary_phone',
+  });
+
+  const totalCount = deduped.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const offset = (safePage - 1) * pageSize;
+  const businesses = deduped.slice(offset, offset + pageSize);
 
   // --- Fetch selected lead details ---
   let selectedLead = null;
