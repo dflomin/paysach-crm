@@ -1,5 +1,5 @@
 import { getDbConnection } from "@/lib/db";
-import { dedupeBusinessRows } from "@/lib/dedupe";
+import { dedupeBusinessRowsExact } from "@/lib/dedupe";
 import { Briefcase, LogIn } from "lucide-react";
 import { getServerSession } from "next-auth";
 import { authOptions } from "./api/auth/[...nextauth]/route";
@@ -191,11 +191,11 @@ export default async function Page({
   const allMatchingBusinesses = businessResult[0] as any[];
   const allStateOptions = (stateResult[0] as any[]).map((r: any) => r.state as string);
 
-  // Apply in-memory deduplication (exact + fuzzy name, fuzzy address, exact phone)
-  const deduped = dedupeBusinessRows(allMatchingBusinesses, {
+  // Apply fast in-memory deduplication (exact name + exact phone only).
+  // Fuzzy name/address checks are intentionally skipped here for performance;
+  // the full fuzzy dedupe still runs in the CSV export.
+  const deduped = dedupeBusinessRowsExact(allMatchingBusinesses, {
     nameField: 'name',
-    stateField: 'filing_state',
-    addressField: 'business_address',
     phoneField: 'primary_phone',
   });
 

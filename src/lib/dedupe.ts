@@ -73,6 +73,58 @@ export interface DedupeOptions {
 }
 
 /**
+ * Fast deduplication using only O(1) exact-match checks (no fuzzy logic).
+ *
+ * Used during CRM page load where performance is critical. Removes rows whose
+ * business name (case-insensitive) or primary phone number exactly matches a
+ * previously seen row. Fuzzy name and fuzzy address checks are intentionally
+ * omitted here — use `dedupeBusinessRows` for exports where thoroughness matters.
+ *
+ * The order of `rows` is preserved; only duplicates are removed.
+ */
+export function dedupeBusinessRowsExact<T extends Record<string, unknown>>(
+  rows: T[],
+  opts: Pick<DedupeOptions, 'nameField' | 'phoneField'>
+): T[] {
+  const { nameField, phoneField } = opts;
+
+  const exactNames = new Set<string>();
+  const seenPhones = new Set<string>();
+  const result: T[] = [];
+
+  for (const row of rows) {
+    const rawName = String(row[nameField] ?? '');
+    let name: string;
+    try {
+      name = decodeURIComponent(rawName);
+    } catch {
+      name = rawName;
+    }
+
+    const phone = phoneField
+      ? (row[phoneField] as string | null | undefined) ?? null
+      : null;
+
+    // 1. Exact name dedup (case-insensitive)
+    if (exactNames.has(name.toLowerCase())) continue;
+
+    // 2. Exact phone dedup
+    if (phone && seenPhones.has(phone)) continue;
+
+    // Passed all filters — record it
+    exactNames.add(name.toLowerCase());
+    const stripped = stripBusinessSuffixes(name);
+    if (stripped.toLowerCase() !== name.toLowerCase()) {
+      exactNames.add(stripped.toLowerCase());
+    }
+    if (phone) seenPhones.add(phone);
+    result.push(row);
+  }
+
+  return result;
+}
+
+/**
  * Deduplicate an ordered array of business rows using the same logic as the
  * legacy getResults script:
  *  - exact name (case-insensitive)
