@@ -447,7 +447,7 @@ export default function CrmClient({
   };
 
   // Known status options (same as tab values)
-  const statusOptions = ['New', 'Interested', 'Callbacks', 'Not Interested', 'Dead'];
+  const statusOptions = ['New', 'Interested', 'Callbacks', 'Not Interested', 'Dead', 'Wrong Number', 'No Contact', 'Wrong Contact'];
 
   const phoneFilterOptions: MultiOption[] = [
     { value: 'present', label: 'Present' },
@@ -791,6 +791,9 @@ export default function CrmClient({
                   'Callbacks': 'bg-yellow-100 text-yellow-800 border-yellow-200',
                   'Not Interested': 'bg-slate-200 text-slate-700 border-slate-300',
                   'Dead': 'bg-red-100 text-red-800 border-red-200',
+                  'Wrong Number': 'bg-orange-100 text-orange-800 border-orange-200',
+                  'No Contact': 'bg-violet-100 text-violet-800 border-violet-200',
+                  'Wrong Contact': 'bg-teal-100 text-teal-800 border-teal-200',
                 };
 
                 return (
@@ -956,6 +959,9 @@ export default function CrmClient({
                   <button onClick={() => handleDisposition('Callbacks')} className="cursor-pointer bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 py-2 sm:py-2.5 rounded-md text-sm font-semibold transition-colors">Callback</button>
                   <button onClick={() => handleDisposition('Not Interested')} className="cursor-pointer bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200 py-2 sm:py-2.5 rounded-md text-sm font-semibold transition-colors">Not Interested</button>
                   <button onClick={() => handleDisposition('Dead')} className="cursor-pointer bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 py-2 sm:py-2.5 rounded-md text-sm font-semibold transition-colors">Dead</button>
+                  <button onClick={() => handleDisposition('Wrong Number')} className="cursor-pointer bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 py-2 sm:py-2.5 rounded-md text-sm font-semibold transition-colors">Wrong Number</button>
+                  <button onClick={() => handleDisposition('No Contact')} className="cursor-pointer bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 py-2 sm:py-2.5 rounded-md text-sm font-semibold transition-colors">No Contact</button>
+                  <button onClick={() => handleDisposition('Wrong Contact')} className="cursor-pointer bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 py-2 sm:py-2.5 rounded-md text-sm font-semibold transition-colors col-span-2">Wrong Contact</button>
                 </div>
               </section>
 
