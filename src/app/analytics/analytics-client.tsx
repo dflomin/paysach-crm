@@ -26,7 +26,7 @@ interface RunOption {
 }
 
 interface StateRow {
-  filing_date: string;
+  state: string;
   with_phone: number;
   without_phone: number;
   total: number;
@@ -690,8 +690,8 @@ export default function AnalyticsClient() {
         />
       </div>
 
-      {/* ── Chart 1: Filings by date (with/without phone) ── */}
-      <Card title="Filings by Date — Phone Coverage">
+      {/* ── Chart 1: Phone coverage by state ── */}
+      <Card title="Phone Coverage by State">
         {statesData.length === 0 && !loading ? (
           <p className="py-8 text-center text-xs text-slate-400">No data for the selected filters.</p>
         ) : (
@@ -703,7 +703,7 @@ export default function AnalyticsClient() {
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
               <XAxis
-                dataKey="filing_date"
+                dataKey="state"
                 tick={{ fontSize: 11, fill: '#64748b' }}
                 tickLine={false}
                 axisLine={{ stroke: '#e2e8f0' }}
