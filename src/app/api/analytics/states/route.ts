@@ -10,9 +10,10 @@ import { getDbConnection } from '@/lib/db';
  *   dateTo    — ISO date string (inclusive), filters on filings.filing_date
  *   runIds    — comma-separated run_meta ids
  *
- * Returns: Array<{ filing_date, with_phone, without_phone, total }>
- *   Each row represents one filing_date bucket, counting filings that belong
+ * Returns: Array<{ state, with_phone, without_phone, total }>
+ *   Each row represents one US state, counting filings that belong
  *   to a business with/without a primary phone number.
+ *   Only filings whose filing_date is on or after dateFrom are included.
  */
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
   const runIds   = searchParams.get('runIds')?.split(',').filter(Boolean) ?? [];
 
   const db = getDbConnection();
-  const conditions: string[] = ['f.filing_date IS NOT NULL'];
+  const conditions: string[] = ['f.filing_date IS NOT NULL', "f.state IS NOT NULL", "f.state != ''"];
   const params: (string | number)[] = [];
 
   if (dateFrom) {
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
   try {
     const [rows] = await db.execute(
       `SELECT
-         DATE_FORMAT(f.filing_date, '%Y-%m-%d')        AS filing_date,
+         f.state                                                AS state,
          SUM(CASE WHEN EXISTS (
            SELECT 1 FROM phones p
            WHERE p.business_uuid = f.business_uuid
@@ -64,10 +65,10 @@ export async function GET(request: NextRequest) {
          COUNT(*)                                      AS total
        FROM filings f
        ${where}
-       GROUP BY DATE_FORMAT(f.filing_date, '%Y-%m-%d')
-       ORDER BY filing_date`,
+       GROUP BY f.state
+       ORDER BY state`,
       params
-    ) as [{ filing_date: string; with_phone: number; without_phone: number; total: number }[], unknown];
+    ) as [{ state: string; with_phone: number; without_phone: number; total: number }[], unknown];
 
     return NextResponse.json(rows);
   } catch (err) {
