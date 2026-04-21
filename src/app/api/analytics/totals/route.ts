@@ -14,7 +14,7 @@ import { getDbConnection } from '@/lib/db';
  *   totalFilings               — COUNT(*) of filings for matched businesses
  *   totalBusinesses            — COUNT(*) of matched businesses
  *   duplicateAddressCount      — COUNT of analytics rows with tag DB_DUPLICATE_BUSINESS_ADDRESS
- *   geminiCost                 — SUM(instances) for COST_GEMINI_OUTPUT_TOKENS * 0.60 / 1_000_000
+ *   geminiCost                 — SUM(instances) for COST_GEMINI_OUTPUT_TOKENS * 2.50 / 1_000_000
  */
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -99,8 +99,8 @@ export async function GET(request: NextRequest) {
     const duplicateAddressCount = Number(dupRows[0]?.duplicateAddressCount ?? 0);
     const totalInstances        = Number(geminiRows[0]?.totalInstances ?? 0);
     const geminiRequests        = Number(geminiRows[0]?.geminiRequests ?? 0);
-    // $0.60 per 1 million output tokens (Gemini 2.5 Flash non-thinking)
-    const GEMINI_COST_PER_MILLION_TOKENS = 0.60;
+    // $2.50 per 1 million output tokens (Gemini 2.5 Flash, including thinking tokens)
+    const GEMINI_COST_PER_MILLION_TOKENS = 2.50;
     const geminiCost            = (totalInstances / 1_000_000) * GEMINI_COST_PER_MILLION_TOKENS;
 
     return NextResponse.json({
